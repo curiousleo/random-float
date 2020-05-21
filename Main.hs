@@ -20,59 +20,8 @@ class
   type Exponent f
   type Significand f
 
-  nan :: f
-  inf :: f
-
   expt :: f -> Exponent f
   sfcd :: f -> Significand f
-
-data Interval f
-  = NaNEndpoint
-  | Degenerate f
-  | LeftInf
-  | RightInf
-  | BothInf
-  | Finite f f
-
--- | Assumes that the right endpoint is positive
-data FiniteInterval f
-  = LeftZero f
-  | Symmetric f
-  | Positive f f
-  | SpansZero f f
-
-data LeftZeroInterval f
-  = SignificandZero (Exponent f)
-  | LeftZeroIntervalOther f
-
-data PositiveInterval f
-  = ExponentsEqual (Exponent f) (Significand f) (Significand f)
-  | SignificandsZero (Exponent f) (Exponent f)
-  | PositiveIntervalOther f f
-
-classify ::
-  RealFloat f =>
-  (f, f) ->
-  Interval f
-classify (x, y)
-  | y < x = error "classify: requires not y < x"
-  | isNaN x || isNaN y = NaNEndpoint
-  | x == y = Degenerate x
-  | isInfinite x && isInfinite y = BothInf
-  | isInfinite x = LeftInf
-  | isInfinite y = RightInf
-  | otherwise = Finite x y
-
-endpoints ::
-  IEEERepr f =>
-  Interval f ->
-  (Maybe f, Maybe f)
-endpoints NaNEndpoint = (Nothing, Nothing)
-endpoints (Degenerate x) = (Just x, Just x)
-endpoints BothInf = (Just (- inf), Just inf)
-endpoints LeftInf = (Just (- inf), Nothing)
-endpoints RightInf = (Nothing, Just inf)
-endpoints (Finite x y) = (Just x, Just y)
 
 uniformExponentsEqual ::
   IEEERepr f =>
@@ -110,19 +59,6 @@ uniformSpansZero ::
   f
 uniformSpansZero = undefined
 
-uniform' ::
-  IEEERepr f =>
-  Interval f ->
-  f
-uniform' NaNEndpoint = nan
-uniform' (Degenerate x) = x
-uniform' LeftInf = - inf
-uniform' RightInf = inf
-uniform' BothInf = inf -- TODO: flip coin for sign
-uniform' (Finite x y)
-  | y <= 0 = - (uniformRightPositive (- y) (- x))
-  | otherwise = uniformRightPositive x y
-
 uniform ::
   IEEERepr f =>
   f ->
@@ -132,15 +68,15 @@ uniform x y
   | isNaN x || isNaN y = x
   | x == y = x
   | x > y = error "uniform: requires not y < x"
-  | isInfinite x && isInfinite y = inf -- TODO: coin flip for sign
-  | isInfinite x = -inf
-  | isInfinite y = inf
+  | isInfinite x && isInfinite y = x -- TODO: coin flip for sign x or y
+  | isInfinite x = x
+  | isInfinite y = y
   | y <= 0 = - (uniformRightPositive (- y) (- x))
   | otherwise = uniformRightPositive x y
 
 -- | Assumes x < y and y > 0.
 uniformRightPositive ::
-  (IEEERepr f, Num (Significand f)) =>
+  IEEERepr f =>
   f ->
   f ->
   f
