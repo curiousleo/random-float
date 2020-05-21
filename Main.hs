@@ -8,6 +8,12 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- TODO
+-- * Inject randomness
+-- * Express "next larger power of two"
+-- * Fix inline TODOs
+-- * Fix undefined's
+
 module Main where
 
 class
@@ -20,9 +26,12 @@ class
   type Exponent f
   type Significand f
 
+  zeroExpt :: f -> Exponent f
+
   expt :: f -> Exponent f
   sfcd :: f -> Significand f
 
+-- | [2^e + x, 2^e + y].
 uniformExponentsEqual ::
   IEEERepr f =>
   Exponent f ->
@@ -31,6 +40,7 @@ uniformExponentsEqual ::
   f
 uniformExponentsEqual = undefined
 
+-- | [2^x, 2^y]
 uniformSignificandsZero ::
   IEEERepr f =>
   Exponent f ->
@@ -38,21 +48,27 @@ uniformSignificandsZero ::
   f
 uniformSignificandsZero = undefined
 
+-- | [0, y], assumes 0 < y.
 uniformLeftZero ::
   IEEERepr f =>
   f ->
   f
-uniformLeftZero = undefined
+uniformLeftZero y
+  | sfcd y == 0 = uniformSignificandsZero (zeroExpt y) (expt y)
+  | otherwise = undefined
 
--- | Assumes 0 < x < y.
+-- | [x, y], assumes 0 < x < y.
 uniformPositive ::
   IEEERepr f =>
   f ->
   f ->
   f
-uniformPositive = undefined
+uniformPositive x y
+  | expt x == expt y = uniformExponentsEqual (expt x) (sfcd x) (sfcd y)
+  | sfcd x == 0 && sfcd y == 0 = uniformSignificandsZero (expt x) (expt y)
+  | otherwise = undefined
 
--- | Assumes x < 0 < y.
+-- | [x, y], assumes x < 0 < y.
 uniformSpansZero ::
   f ->
   f ->
@@ -81,11 +97,9 @@ uniformRightPositive ::
   f ->
   f
 uniformRightPositive x y
-  | x < 0 = uniformSpansZero x y
-  | expt x == expt y = uniformExponentsEqual (expt x) (sfcd x) (sfcd y)
-  | sfcd x == 0 && sfcd y == 0 = uniformSignificandsZero (expt x) (expt y)
   | x == 0 = uniformLeftZero y
   | x == - y = uniformLeftZero y -- TODO: flip coin for sign
+  | x < 0 = uniformSpansZero x y
   | otherwise = uniformPositive x y
 
 main :: IO ()
