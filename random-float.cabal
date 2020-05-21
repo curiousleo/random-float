@@ -1,0 +1,11 @@
+cabal-version:      >=1.10
+name:               random-float
+version:            0.1.0.0
+license:            LGPL-3
+build-type:         Simple
+extra-source-files: CHANGELOG.md
+
+executable random-float
+    main-is:          Main.hs
+    default-language: Haskell2010
+    build-depends:    base >=4.12 && <4.13
