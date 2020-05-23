@@ -46,6 +46,7 @@ uniformExponentsEqual e (sx, sy) =
     assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
 
 -- | [2^e + sx, 2^(e+1) + y].
+-- FIXME: this is wrong, consider sx = maxBound; sy = 0
 uniformExponentsDifferByOne ::
   forall m f e s.
   MonadIEEE m f e s =>
