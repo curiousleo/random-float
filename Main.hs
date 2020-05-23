@@ -19,8 +19,8 @@ isPoint f = not (isNaN f) && not (isInfinite f)
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
-iterateUntilM :: Monad m => m a -> (a -> Bool) -> m a
-iterateUntilM f p = f >>= go
+iterateUntilM :: Monad m => (a -> Bool) -> m a -> m a
+iterateUntilM p f = f >>= go
   where
     go !x = if p x then return x else f >>= go
 
@@ -91,7 +91,7 @@ uniformPositive (x, y)
   | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
-     in sample `iterateUntilM` (\u -> x <= u && u <= y)
+     in iterateUntilM (\u -> x <= u && u <= y) sample
   where
     (ex, sx) = explode x
     (ey, sy) = explode y
@@ -121,7 +121,7 @@ uniformRightPositive (x, y)
   | negate x == y = perhapsNegate <*> uniformPositive (0, y)
   | otherwise =
     let sample = perhapsNegate <*> uniformPositive (0, max (negate x) y)
-     in sample `iterateUntilM` (\u -> x <= u && u <= y)
+     in iterateUntilM (\u -> x <= u && u <= y) sample
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
