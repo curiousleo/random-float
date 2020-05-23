@@ -21,8 +21,9 @@ assertTrue = flip assert False
 
 -- | Assumption: minBound :: Significand f == 0
 class
-  (RealFloat f, Eq e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
-  IEEERepr f e s | f -> e s where
+  (RealFloat f, Eq e, Ord e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
+  IEEERepr f e s
+    | f -> e s where
   explode :: f -> (e, s)
   assemble :: (e, s) -> f
 
@@ -42,7 +43,8 @@ uniformExponentsEqual ::
   (s, s) ->
   m f
 uniformExponentsEqual e (sx, sy) =
-  assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
+  assert (sx < sy) $
+    assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
 
 -- | [2^e + sx, 2^(e+1) + y].
 uniformExponentsDifferByOne ::
@@ -65,7 +67,7 @@ uniformSignificandsZero ::
   MonadIEEE m f e s =>
   (e, e) ->
   m f
-uniformSignificandsZero (ex, ey) = do
+uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
   let p = Proxy :: Proxy f
   s <- drawSignificand p (0, maxBound)
   e <- drawExponent p (ex, pred ey)
