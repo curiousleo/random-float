@@ -9,7 +9,6 @@ module Main where
 import Control.Exception (assert)
 import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
-import Prelude hiding (exponent, significand)
 
 -- TODO: instance IEEERepr, MonadIEEE
 
