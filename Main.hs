@@ -82,8 +82,9 @@ uniformPositive (x, y)
   | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
   | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
-    let go = do
-          u <- uniformSignificandsZero (ex, succ ey)
+    let ey' = if sx == 0 then ey else succ ey
+        go = do
+          u <- uniformSignificandsZero (ex, ey')
           if x <= u && u <= y then return u else go
      in go
   where
