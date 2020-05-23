@@ -10,6 +10,8 @@ import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
 import Prelude hiding (exponent, significand)
 
+-- TODO: instance IEEERepr, MonadIEEE
+
 class
   ( RealFloat f,
     Eq (Exponent f),
@@ -86,14 +88,6 @@ uniformPositive x y
     sx = significand x
     sy = significand y
 
--- | [0, y], assumes 0 < y.
-uniformLeftZero ::
-  forall f m.
-  MonadIEEE m f =>
-  f ->
-  m f
-uniformLeftZero = uniformPositive 0
-
 -- | [x, y], assumes x < 0 < y.
 uniformSpansZero ::
   forall f m.
@@ -105,7 +99,7 @@ uniformSpansZero x y = go
   where
     z = max (- x) y
     go = do
-      u <- perhapsNegate <*> uniformLeftZero z
+      u <- perhapsNegate <*> uniformPositive 0 z
       if x <= u && u <= y then return u else go
 
 uniform ::
@@ -134,8 +128,7 @@ uniformRightPositive ::
   f ->
   m f
 uniformRightPositive x y
-  | x == 0 = uniformLeftZero y
-  | x == - y = perhapsNegate <*> uniformLeftZero y
+  | x == - y = perhapsNegate <*> uniformPositive 0 y
   | x < 0 = uniformSpansZero x y
   | otherwise = uniformPositive x y
 
