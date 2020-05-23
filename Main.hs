@@ -11,13 +11,18 @@ import Data.Proxy (Proxy (Proxy))
 import Prelude hiding (exponent, significand)
 
 -- TODO: instance IEEERepr, MonadIEEE
+-- IDEA: reformulate in terms of
+--   data IEEERepr a => Repr a
+--     = Pos (Exponent a, Significand a)
+--     | Neg (Exponent a, Significand a)
 
 class
   ( RealFloat f,
     Eq (Exponent f),
+    Enum (Exponent f),
     Eq (Significand f),
-    Num (Exponent f),
-    Num (Significand f)
+    Ord (Significand f),
+    Integral (Significand f)
   ) =>
   IEEERepr f where
   type Exponent f
@@ -55,6 +60,28 @@ uniformExponentsEqual ::
 uniformExponentsEqual p e sx sy =
   assemblePositive p . (e,) <$> drawSignificand p (sx, sy)
 
+-- | [2^e + sx, 2^(e+1) + y].
+uniformExponentsDifferByOne ::
+  MonadIEEE m f =>
+  Proxy f ->
+  Exponent f ->
+  Significand f ->
+  Significand f ->
+  m f
+uniformExponentsDifferByOne p e sx sy = go
+  where
+    m = max (maxSignificand p - sx) (sy + sy)
+    go = do
+      neg <- drawSign p
+      sfc <- drawSignificand p (0, m)
+      if not neg
+        then return $ assemblePositive p (succ e, sfc `div` 2)
+        else
+          let sx' = maxSignificand p - sfc
+           in if sx <= sx'
+                then return $ assemblePositive p (e, sx')
+                else go
+
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
   MonadIEEE m f =>
@@ -77,6 +104,7 @@ uniformPositive ::
 uniformPositive x y
   | ex == ey = uniformExponentsEqual Proxy ex sx sy
   | sx == 0 && sy == 0 = uniformSignificandsZero Proxy ex ey
+  | succ ex == ey && sy <= maxS `div` 2 = uniformExponentsDifferByOne p ex sx sy
   | otherwise =
     let go = do
           u <- uniformSignificandsZero Proxy ex ey
@@ -87,6 +115,8 @@ uniformPositive x y
     ey = exponent y
     sx = significand x
     sy = significand y
+    maxS = maxSignificand p
+    p = Proxy :: Proxy f
 
 -- | [x, y], assumes x < 0 < y.
 uniformSpansZero ::
