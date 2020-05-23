@@ -19,9 +19,6 @@ isPoint f = not (isNaN f) && not (isInfinite f)
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
-unreachable :: a
-unreachable = error "unreachable"
-
 class
   ( RealFloat f,
     Eq (Exponent f),
@@ -71,19 +68,17 @@ uniformExponentsDifferByOne ::
   Significand f ->
   m f
 uniformExponentsDifferByOne p e sx sy =
-  assert (sy <= maxSignificand p `div` 2) go
+  assert (sy <= maxSignificand p `div` 2) (assemble p <$> go)
   where
-    m = max (maxSignificand p - sx) (sy + sy)
+    maxS = maxSignificand p
+    maxSMinusSx = maxS - sx
+    m = max maxSMinusSx (sy + sy)
     go = do
       b <- drawBool p
       s <- drawSignificand p (0, m)
       if b
-        then return $ assemble p (succ e, s `div` 2)
-        else
-          let sx' = maxSignificand p - s
-           in if sx <= sx'
-                then return $ assemble p (e, sx')
-                else go
+        then return (succ e, s `div` 2)
+        else if s <= maxSMinusSx then return (e, maxS - s) else go
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
@@ -105,7 +100,7 @@ uniformPositive ::
   f ->
   m f
 uniformPositive x y
-  | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = unreachable
+  | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual Proxy ex sx sy
   | sx == 0 && sy == 0 = uniformSignificandsZero Proxy ex ey
   | succ ex == ey && sy <= maxS `div` 2 = uniformExponentsDifferByOne p ex sx sy
@@ -130,13 +125,11 @@ uniform x y
   | isNaN x || isNaN y = return x
   | x == y = return x
   | x > y = error "uniform"
-  | isInfinite x && isInfinite y = bool x y <$> drawBool p
+  | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite x = return x
   | isInfinite y = return y
   | y <= 0 = negate <$> uniformRightPositive (- y) (- x)
   | otherwise = uniformRightPositive x y
-  where
-    p = Proxy :: Proxy f
 
 uniformRightPositive ::
   forall f m.
@@ -145,7 +138,7 @@ uniformRightPositive ::
   f ->
   m f
 uniformRightPositive x y
-  | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = unreachable
+  | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = error "unreachable"
   | 0 <= x = uniformPositive x y
   | negate x == y = perhapsNegate <*> uniformPositive 0 y
   | otherwise =
