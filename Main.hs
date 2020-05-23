@@ -11,10 +11,17 @@ import Data.Proxy (Proxy (Proxy))
 import Prelude hiding (exponent, significand)
 
 -- TODO: instance IEEERepr, MonadIEEE
--- IDEA: reformulate in terms of
---   data IEEERepr a => Repr a
---     = Pos (Exponent a, Significand a)
---     | Neg (Exponent a, Significand a)
+
+data IEEERepr a => Repr a
+  = Pos (Exponent a, Significand a)
+  | Neg (Exponent a, Significand a)
+
+data IEEERepr a => RightPositiveInterval a
+  = LeftNegative (Exponent a, Significand a, Exponent a, Significand a)
+  | LeftPositive (Exponent a, Significand a, Exponent a, Significand a)
+
+newtype IEEERepr a => PositiveInterval a
+  = Positive (Exponent a, Significand a, Exponent a, Significand a)
 
 class
   ( RealFloat f,
@@ -39,7 +46,7 @@ class
   assemblePositive :: Proxy f -> (Exponent f, Significand f) -> f
 
 class (Monad m, IEEERepr f) => MonadIEEE m f where
-  drawSign :: Proxy f -> m Bool
+  drawBool :: Proxy f -> m Bool
   drawExponent :: Proxy f -> (Exponent f, Exponent f) -> m (Exponent f)
   drawSignificand ::
     Proxy f ->
@@ -47,7 +54,7 @@ class (Monad m, IEEERepr f) => MonadIEEE m f where
     m (Significand f)
 
 perhapsNegate :: forall f m. MonadIEEE m f => m (f -> f)
-perhapsNegate = bool id negate <$> drawSign (Proxy :: Proxy f)
+perhapsNegate = bool id negate <$> drawBool (Proxy :: Proxy f)
 
 -- | [2^e + x, 2^e + y].
 uniformExponentsEqual ::
@@ -72,12 +79,12 @@ uniformExponentsDifferByOne p e sx sy = go
   where
     m = max (maxSignificand p - sx) (sy + sy)
     go = do
-      neg <- drawSign p
-      sfc <- drawSignificand p (0, m)
-      if not neg
-        then return $ assemblePositive p (succ e, sfc `div` 2)
+      b <- drawBool p
+      s <- drawSignificand p (0, m)
+      if b
+        then return $ assemblePositive p (succ e, s `div` 2)
         else
-          let sx' = maxSignificand p - sfc
+          let sx' = maxSignificand p - s
            in if sx <= sx'
                 then return $ assemblePositive p (e, sx')
                 else go
@@ -90,9 +97,10 @@ uniformSignificandsZero ::
   Exponent f ->
   m f
 uniformSignificandsZero p ex ey = do
-  e <- drawExponent p (ex, ey)
   s <- drawSignificand p (minSignificand p, maxSignificand p)
-  return $ assemblePositive p (e, s)
+  e <- drawExponent p (ex, pred ey)
+  carry <- ((s == minSignificand p) &&) <$> drawBool p
+  return $ assemblePositive p (bool e (succ e) carry, s)
 
 -- | [x, y], assumes 0 < x < y.
 uniformPositive ::
@@ -142,7 +150,7 @@ uniform x y
   | isNaN x || isNaN y = return x
   | x == y = return x
   | x > y = error "uniform: requires not y < x"
-  | isInfinite x && isInfinite y = bool x y <$> drawSign p
+  | isInfinite x && isInfinite y = bool x y <$> drawBool p
   | isInfinite x = return x
   | isInfinite y = return y
   | y <= 0 = negate <$> uniformRightPositive (- y) (- x)
