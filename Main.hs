@@ -18,6 +18,11 @@ isPoint f = not (isNaN f) && not (isInfinite f)
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
+iterateUntilM :: Monad m => m a -> (a -> Bool) -> m a
+iterateUntilM f p = f >>= go
+  where
+    go x = if p x then return x else f >>= go
+
 -- | Assumption: minBound :: Significand f == 0
 class
   (RealFloat f, Eq e, Ord e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
@@ -72,7 +77,7 @@ uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
   s <- drawSignificand p (0, maxBound)
   e <- drawExponent p (ex, pred ey)
   carry <- ((s == 0) &&) <$> drawBool p
-  return $ assemble (bool e (succ e) carry, s)
+  return $ assemble (if carry then succ e else e, s)
 
 uniformPositive ::
   MonadIEEE m f e s =>
@@ -85,10 +90,8 @@ uniformPositive (x, y)
   | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let ey' = if sx == 0 then ey else succ ey
-        go = do
-          u <- uniformSignificandsZero (ex, ey')
-          if x <= u && u <= y then return u else go
-     in go
+        sample = uniformSignificandsZero (ex, ey')
+     in sample `iterateUntilM` (\u -> x <= u && u <= y)
   where
     (ex, sx) = explode x
     (ey, sy) = explode y
@@ -118,10 +121,8 @@ uniformRightPositive (x, y)
   | negate x == y = perhapsNegate <*> uniformPositive (0, y)
   | otherwise =
     let z = max (negate x) y
-        go = do
-          u <- perhapsNegate <*> uniformPositive (0, z)
-          if x <= u && u <= y then return u else go
-     in go
+        sample = perhapsNegate <*> uniformPositive (0, z)
+     in sample `iterateUntilM` (\u -> x <= u && u <= y)
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
