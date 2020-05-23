@@ -67,18 +67,14 @@ uniformExponentsDifferByOne ::
   Significand f ->
   Significand f ->
   m f
-uniformExponentsDifferByOne p e sx sy =
-  assert (sy <= maxSignificand p `div` 2) (assemble p <$> go)
-  where
-    maxS = maxSignificand p
-    maxSMinusSx = maxS - sx
-    m = max maxSMinusSx (sy + sy)
-    go = do
-      b <- drawBool p
-      s <- drawSignificand p (0, m)
-      if b
-        then return (succ e, s `div` 2)
-        else if s <= maxSMinusSx then return (e, maxS - s) else go
+uniformExponentsDifferByOne p e sx sy = assert (sy <= sx `div` 2) $ do
+  let maxS = maxSignificand p
+      maxSMinusSx = maxS - sx
+  r <- drawSignificand p (0, maxSMinusSx + sy + sy)
+  return . assemble p $
+    if r <= maxSMinusSx
+      then (e, maxS - r)
+      else (succ e, (r - maxSMinusSx) `div` 2)
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
@@ -103,7 +99,7 @@ uniformPositive x y
   | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual Proxy ex sx sy
   | sx == 0 && sy == 0 = uniformSignificandsZero Proxy ex ey
-  | succ ex == ey && sy <= maxS `div` 2 = uniformExponentsDifferByOne p ex sx sy
+  | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne p ex sx sy
   | otherwise =
     let go = do
           u <- uniformSignificandsZero Proxy ex ey
@@ -112,7 +108,6 @@ uniformPositive x y
   where
     (ex, sx) = explode x
     (ey, sy) = explode y
-    maxS = maxSignificand p
     p = Proxy :: Proxy f
 
 uniform ::
