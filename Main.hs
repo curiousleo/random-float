@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -21,7 +22,7 @@ assertTrue = flip assert False
 iterateUntilM :: Monad m => m a -> (a -> Bool) -> m a
 iterateUntilM f p = f >>= go
   where
-    go x = if p x then return x else f >>= go
+    go !x = if p x then return x else f >>= go
 
 -- | Assumption: minBound :: Significand f == 0
 class
@@ -89,8 +90,7 @@ uniformPositive (x, y)
   | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
   | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
-    let ey' = if sx == 0 then ey else succ ey
-        sample = uniformSignificandsZero (ex, ey')
+    let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
      in sample `iterateUntilM` (\u -> x <= u && u <= y)
   where
     (ex, sx) = explode x
@@ -120,8 +120,7 @@ uniformRightPositive (x, y)
   | 0 <= x = uniformPositive (x, y)
   | negate x == y = perhapsNegate <*> uniformPositive (0, y)
   | otherwise =
-    let z = max (negate x) y
-        sample = perhapsNegate <*> uniformPositive (0, z)
+    let sample = perhapsNegate <*> uniformPositive (0, max (negate x) y)
      in sample `iterateUntilM` (\u -> x <= u && u <= y)
 
 main :: IO ()
