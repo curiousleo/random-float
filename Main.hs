@@ -36,8 +36,6 @@ class
   type Significand f
 
   zeroExponent :: Proxy f -> Exponent f
-
-  minSignificand :: Proxy f -> Significand f
   maxSignificand :: Proxy f -> Significand f
 
   exponent :: f -> Exponent f
@@ -97,9 +95,9 @@ uniformSignificandsZero ::
   Exponent f ->
   m f
 uniformSignificandsZero p ex ey = do
-  s <- drawSignificand p (minSignificand p, maxSignificand p)
+  s <- drawSignificand p (0, maxSignificand p)
   e <- drawExponent p (ex, pred ey)
-  carry <- ((s == minSignificand p) &&) <$> drawBool p
+  carry <- ((s == 0) &&) <$> drawBool p
   return $ assemblePositive p (bool e (succ e) carry, s)
 
 -- | [x, y], assumes 0 < x < y.
