@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,127 +19,104 @@ isPoint f = not (isNaN f) && not (isInfinite f)
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
+-- | Assumption: minBound :: Significand f == 0
 class
-  ( RealFloat f,
-    Eq (Exponent f),
-    Enum (Exponent f),
-    Eq (Significand f),
-    Ord (Significand f),
-    Integral (Significand f)
-  ) =>
-  IEEERepr f where
-  type Exponent f
-  type Significand f
+  (RealFloat f, Eq e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
+  IEEERepr f e s | f -> e s where
+  explode :: f -> (e, s)
+  assemble :: (e, s) -> f
 
-  zeroExponent :: Proxy f -> Exponent f
-  maxSignificand :: Proxy f -> Significand f
-
-  explode :: f -> (Exponent f, Significand f)
-  assemble :: Proxy f -> (Exponent f, Significand f) -> f
-
-class (Monad m, IEEERepr f) => MonadIEEE m f where
+class (Monad m, IEEERepr f e s) => MonadIEEE m f e s where
   drawBool :: Proxy f -> m Bool
-  drawExponent :: Proxy f -> (Exponent f, Exponent f) -> m (Exponent f)
-  drawSignificand ::
-    Proxy f ->
-    (Significand f, Significand f) ->
-    m (Significand f)
+  drawExponent :: Proxy f -> (e, e) -> m e
+  drawSignificand :: Proxy f -> (s, s) -> m s
 
-perhapsNegate :: forall f m. MonadIEEE m f => m (f -> f)
+perhapsNegate :: forall m f e s. MonadIEEE m f e s => m (f -> f)
 perhapsNegate = bool id negate <$> drawBool (Proxy :: Proxy f)
 
 -- | [2^e + x, 2^e + y].
 uniformExponentsEqual ::
-  MonadIEEE m f =>
-  Proxy f ->
-  Exponent f ->
-  Significand f ->
-  Significand f ->
+  forall m f e s.
+  MonadIEEE m f e s =>
+  e ->
+  (s, s) ->
   m f
-uniformExponentsEqual p e sx sy =
-  assemble p . (e,) <$> drawSignificand p (sx, sy)
+uniformExponentsEqual e (sx, sy) =
+  assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
 
 -- | [2^e + sx, 2^(e+1) + y].
 uniformExponentsDifferByOne ::
-  MonadIEEE m f =>
-  Proxy f ->
-  Exponent f ->
-  Significand f ->
-  Significand f ->
+  forall m f e s.
+  MonadIEEE m f e s =>
+  e ->
+  (s, s) ->
   m f
-uniformExponentsDifferByOne p e sx sy = assert (sy <= sx `div` 2) $ do
-  let maxS = maxSignificand p
-      maxSMinusSx = maxS - sx
-  r <- drawSignificand p (0, maxSMinusSx + sy + sy)
-  return . assemble p $
+uniformExponentsDifferByOne e (sx, sy) = assert (sy <= sx `div` 2) $ do
+  let maxSMinusSx = maxBound - sx
+  r <- drawSignificand (Proxy :: Proxy f) (0, maxSMinusSx + sy + sy)
+  return . assemble $
     if r <= maxSMinusSx
-      then (e, maxS - r)
+      then (e, maxBound - r)
       else (succ e, (r - maxSMinusSx) `div` 2)
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
-  MonadIEEE m f =>
-  Proxy f ->
-  Exponent f ->
-  Exponent f ->
+  forall m f e s.
+  MonadIEEE m f e s =>
+  (e, e) ->
   m f
-uniformSignificandsZero p ex ey = do
-  s <- drawSignificand p (0, maxSignificand p)
+uniformSignificandsZero (ex, ey) = do
+  let p = Proxy :: Proxy f
+  s <- drawSignificand p (0, maxBound)
   e <- drawExponent p (ex, pred ey)
   carry <- ((s == 0) &&) <$> drawBool p
-  return $ assemble p (bool e (succ e) carry, s)
+  return $ assemble (bool e (succ e) carry, s)
 
 uniformPositive ::
-  forall f m.
-  MonadIEEE m f =>
-  f ->
-  f ->
+  MonadIEEE m f e s =>
+  (f, f) ->
   m f
-uniformPositive x y
+uniformPositive (x, y)
   | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = error "unreachable"
-  | ex == ey = uniformExponentsEqual Proxy ex sx sy
-  | sx == 0 && sy == 0 = uniformSignificandsZero Proxy ex ey
-  | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne p ex sx sy
+  | ex == ey = uniformExponentsEqual ex (sx, sy)
+  | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
+  | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let go = do
-          u <- uniformSignificandsZero Proxy ex ey
+          u <- uniformSignificandsZero (ex, succ ey)
           if x <= u && u <= y then return u else go
      in go
   where
     (ex, sx) = explode x
     (ey, sy) = explode y
-    p = Proxy :: Proxy f
 
 uniform ::
-  forall f m.
-  MonadIEEE m f =>
-  f ->
-  f ->
+  forall m f e s.
+  MonadIEEE m f e s =>
+  (f, f) ->
   m f
-uniform x y
+uniform (x, y)
   | isNaN x || isNaN y = return x
   | x == y = return x
   | x > y = error "uniform"
   | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite x = return x
   | isInfinite y = return y
-  | y <= 0 = negate <$> uniformRightPositive (- y) (- x)
-  | otherwise = uniformRightPositive x y
+  | y <= 0 = negate <$> uniformRightPositive (negate y, negate x)
+  | otherwise = uniformRightPositive (x, y)
 
 uniformRightPositive ::
-  forall f m.
-  MonadIEEE m f =>
-  f ->
-  f ->
+  MonadIEEE m f e s =>
+  (f, f) ->
   m f
-uniformRightPositive x y
+uniformRightPositive (x, y)
   | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = error "unreachable"
-  | 0 <= x = uniformPositive x y
-  | negate x == y = perhapsNegate <*> uniformPositive 0 y
+  | 0 <= x = uniformPositive (x, y)
+  | negate x == y = perhapsNegate <*> uniformPositive (0, y)
   | otherwise =
     let z = max (negate x) y
         go = do
-          u <- perhapsNegate <*> uniformPositive 0 z
+          u <- perhapsNegate <*> uniformPositive (0, z)
           if x <= u && u <= y then return u else go
      in go
 
