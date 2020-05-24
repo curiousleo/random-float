@@ -40,7 +40,7 @@ class (Monad m, IEEERepr f e s) => MonadIEEE m f e s where
 perhapsNegate :: forall m f e s. MonadIEEE m f e s => m (f -> f)
 perhapsNegate = bool id negate <$> drawBool (Proxy :: Proxy f)
 
--- | [2^e + x, 2^e + y].
+-- | [2^e + sx, 2^e + sy].
 uniformExponentsEqual ::
   forall m f e s.
   MonadIEEE m f e s =>
@@ -51,21 +51,25 @@ uniformExponentsEqual e (sx, sy) =
   assert (sx < sy) $
     assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
 
--- | [2^e + sx, 2^(e+1) + y].
--- FIXME: this is wrong, consider sx = maxBound; sy = 0
+-- | [2^ex + sx, 2^(ex+1) + sy].
 uniformExponentsDifferByOne ::
   forall m f e s.
   MonadIEEE m f e s =>
   e ->
   (s, s) ->
   m f
-uniformExponentsDifferByOne e (sx, sy) = assert (sy <= sx `div` 2) $ do
-  let maxSMinusSx = maxBound - sx
-  r <- drawSignificand (Proxy :: Proxy f) (0, maxSMinusSx + sy + sy)
-  return . assemble $
-    if r <= maxSMinusSx
-      then (e, maxBound - r)
-      else (succ e, (r - maxSMinusSx) `div` 2)
+uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
+  where
+    p = Proxy :: Proxy f
+    ey = succ ex
+    sz = max (maxBound - sx) sy
+    draw = (,) <$> drawExponent p (ex, ey) <*> drawSignificand p (0, sz)
+    go (e, s)
+      | e == ex && sx <= s' = return (ex, s')
+      | e == ey && s <= sy = return (ey, s)
+      | otherwise = draw >>= go
+      where
+        s' = maxBound - s
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
@@ -73,10 +77,10 @@ uniformSignificandsZero ::
   MonadIEEE m f e s =>
   (e, e) ->
   m f
-uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
+uniformSignificandsZero (ex, ey) = assert (succ ex < ey) $ do
   let p = Proxy :: Proxy f
-  s <- drawSignificand p (0, maxBound)
   e <- drawExponent p (ex, pred ey)
+  s <- drawSignificand p (0, maxBound)
   carry <- ((s == 0) &&) <$> drawBool p
   return $ assemble (if carry then succ e else e, s)
 
@@ -88,7 +92,7 @@ uniformPositive (x, y)
   | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual ex (sx, sy)
   | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
-  | succ ex == ey && sy <= sx `div` 2 = uniformExponentsDifferByOne ex (sx, sy)
+  | succ ex == ey = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
      in iterateUntilM (\u -> x <= u && u <= y) sample
