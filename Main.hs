@@ -65,6 +65,7 @@ uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
     sz = max (maxBound - sx) sy
     draw = (,) <$> drawExponent p (ex, ey) <*> drawSignificand p (0, sz)
     go (e, s)
+      | assertTrue (e == ex || e == ey) = error "unreachable"
       | e == ex && sx <= s' = return (ex, s')
       | e == ey && s <= sy = return (ey, s)
       | otherwise = draw >>= go
