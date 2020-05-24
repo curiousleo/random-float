@@ -108,7 +108,7 @@ uniform (x, y)
   | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite x = return x
   | isInfinite y = return y
-  | y <= 0 = negate <$> uniformRightPositive (negate y, negate x)
+  | y <= 0 = negate <$> uniformRightPositive (abs y, abs x)
   | otherwise = uniformRightPositive (x, y)
 
 uniformRightPositive ::
@@ -118,9 +118,9 @@ uniformRightPositive ::
 uniformRightPositive (x, y)
   | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = error "unreachable"
   | 0 <= x = uniformPositive (x, y)
-  | negate x == y = perhapsNegate <*> uniformPositive (0, y)
+  | abs x == y = perhapsNegate <*> uniformPositive (0, y)
   | otherwise =
-    let sample = perhapsNegate <*> uniformPositive (0, max (negate x) y)
+    let sample = perhapsNegate <*> uniformPositive (0, max (abs x) y)
      in iterateUntilM (\u -> x <= u && u <= y) sample
 
 main :: IO ()
