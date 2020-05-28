@@ -10,8 +10,15 @@ module Main where
 import Control.Exception (assert)
 import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
-
--- TODO: instance IEEERepr, MonadIEEE
+import MonadIEEE
+  ( MonadIEEE,
+    assemble,
+    drawBool,
+    drawExponent,
+    drawSignificand,
+    explode,
+    perhapsNegate,
+  )
 
 isPoint :: RealFloat a => a -> Bool
 isPoint f = not (isNaN f) && not (isInfinite f)
@@ -23,22 +30,6 @@ iterateUntilM :: Monad m => (a -> Bool) -> m a -> m a
 iterateUntilM p f = f >>= go
   where
     go !x = if p x then return x else f >>= go
-
--- | Assumption: minBound :: Significand f == 0
-class
-  (RealFloat f, Eq e, Ord e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
-  IEEERepr f e s
-    | f -> e s where
-  explode :: f -> (e, s)
-  assemble :: (e, s) -> f
-
-class (Monad m, IEEERepr f e s) => MonadIEEE m f e s where
-  drawBool :: Proxy f -> m Bool
-  drawExponent :: Proxy f -> (e, e) -> m e
-  drawSignificand :: Proxy f -> (s, s) -> m s
-
-perhapsNegate :: forall m f e s. MonadIEEE m f e s => m (f -> f)
-perhapsNegate = bool id negate <$> drawBool (Proxy :: Proxy f)
 
 -- | [2^e + sx, 2^e + sy].
 uniformExponentsEqual ::
