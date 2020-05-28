@@ -1,13 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module MonadIEEE where
 
+import Control.Arrow (first)
 import Control.Exception (assert)
+import Control.Monad.State.Strict (State, state)
 import Data.Bits
 import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
@@ -18,8 +20,13 @@ import GHC.Float
     castWord32ToFloat,
     castWord64ToDouble,
   )
-
--- TODO: instance IEEERepr, MonadIEEE
+import System.Random.SplitMix
+  ( SMGen,
+    bitmaskWithRejection32,
+    bitmaskWithRejection64,
+    nextWord32,
+    nextWord64,
+  )
 
 -------------------------------------------------------------------------------
 -- IEEERepr and MonadIEEE class declarations
@@ -61,7 +68,7 @@ instance IEEERepr Float Word8 Word32 where
     where
       w = castFloatToWord32 f
       e = (w `unsafeShiftR` floatSignificandWidth) .&. mask floatExponentWidth
-      s = w .&. (mask floatSignificandWidth)
+      s = w .&. mask floatSignificandWidth
   assemble (e, s)
     | assertTrue (s' == s) = error "unreachable"
     | otherwise = castWord32ToFloat w
@@ -79,7 +86,7 @@ instance IEEERepr Double Word16 Word64 where
     where
       w = castDoubleToWord64 f
       e = (w `unsafeShiftR` doubleSignificandWidth) .&. mask doubleExponentWidth
-      s = w .&. (mask doubleSignificandWidth)
+      s = w .&. mask doubleSignificandWidth
   assemble (e, s)
     | assertTrue (e == e' && s' == s) = error "unreachable"
     | otherwise = castWord64ToDouble w
@@ -87,3 +94,44 @@ instance IEEERepr Double Word16 Word64 where
       e' = e .&. mask doubleExponentWidth
       s' = s .&. mask doubleSignificandWidth
       w = (fromIntegral e' `unsafeShiftL` doubleSignificandWidth) .|. s'
+
+-------------------------------------------------------------------------------
+-- MonadIEEE instance for SMGen
+-------------------------------------------------------------------------------
+
+-- TODO: better use bitmaskWithRejection32' to avoid overflow with 'succ'
+instance MonadIEEE (State SMGen) Float Word8 Word32 where
+  drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
+  drawSignificand _ (x, y) = state (first (+ x) . bitmaskWithRejection32 limit)
+    where
+      limit = succ y - x
+  drawExponent _ (x, y) = state (first fromIntegral . f start)
+    where
+      start = fromIntegral x :: Int
+      limit = fromIntegral y :: Int
+      f :: Int -> SMGen -> (Int, SMGen)
+      f !acc g
+        | acc >= limit = (limit, g)
+        | otherwise =
+          let (w, g') = nextWord64 g
+           in if w /= 0
+                then (acc + countLeadingZeros w, g')
+                else f (acc + finiteBitSize w) g'
+
+instance MonadIEEE (State SMGen) Double Word16 Word64 where
+  drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
+  drawSignificand _ (x, y) = state (first (+ x) . bitmaskWithRejection64 limit)
+    where
+      limit = succ y - x
+  drawExponent _ (x, y) = state (first fromIntegral . f start)
+    where
+      start = fromIntegral x :: Int
+      limit = fromIntegral y :: Int
+      f :: Int -> SMGen -> (Int, SMGen)
+      f !acc g
+        | acc >= limit = (limit, g)
+        | otherwise =
+          let (w, g') = nextWord64 g
+           in if w /= 0
+                then (acc + countLeadingZeros w, g')
+                else f (acc + finiteBitSize w) g'
