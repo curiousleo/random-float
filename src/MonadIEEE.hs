@@ -22,8 +22,8 @@ import GHC.Float
   )
 import System.Random.SplitMix
   ( SMGen,
-    bitmaskWithRejection32,
-    bitmaskWithRejection64,
+    bitmaskWithRejection32',
+    bitmaskWithRejection64',
     nextWord32,
     nextWord64,
   )
@@ -34,9 +34,10 @@ import System.Random.SplitMix
 
 -- | Assumption: minBound :: Significand f == 0
 class
-  (RealFloat f, Eq e, Ord e, Enum e, Eq s, Ord s, Integral s, Bounded s) =>
+  (RealFloat f, Eq e, Ord e, Enum e, Show e, Eq s, Ord s, Integral s, Show s) =>
   IEEERepr f e s
     | f -> e s where
+  maxSignificand :: Proxy f -> s
   explode :: f -> (e, s)
   assemble :: (e, s) -> f
 
@@ -64,6 +65,7 @@ floatExponentWidth = 8
 floatExponentBias = 127
 
 instance IEEERepr Float Word8 Word32 where
+  maxSignificand _ = mask floatSignificandWidth
   explode f = (fromIntegral e, s)
     where
       w = castFloatToWord32 f
@@ -82,6 +84,7 @@ doubleExponentWidth = 11
 doubleExponentBias = 1023
 
 instance IEEERepr Double Word16 Word64 where
+  maxSignificand _ = mask doubleSignificandWidth
   explode f = (fromIntegral e, s)
     where
       w = castDoubleToWord64 f
@@ -99,39 +102,28 @@ instance IEEERepr Double Word16 Word64 where
 -- MonadIEEE instance for SMGen
 -------------------------------------------------------------------------------
 
--- TODO: better use bitmaskWithRejection32' to avoid overflow with 'succ'
+drawDownExponent :: Integral a => (a, a) -> (g -> (Word64, g)) -> g -> (Int, g)
+drawDownExponent (limit, start) gen = go (fromIntegral start)
+  where
+    limit' = fromIntegral limit
+    go !acc g
+      | acc <= limit' = (limit', g)
+      | otherwise =
+        let (w, g') = gen g
+         in if w /= 0
+              then (max limit' (acc - countLeadingZeros w), g')
+              else go (acc - finiteBitSize w) g
+
 instance MonadIEEE (State SMGen) Float Word8 Word32 where
   drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
-  drawSignificand _ (x, y) = state (first (+ x) . bitmaskWithRejection32 limit)
-    where
-      limit = succ y - x
-  drawExponent _ (x, y) = state (first fromIntegral . f start)
-    where
-      start = fromIntegral x :: Int
-      limit = fromIntegral y :: Int
-      f :: Int -> SMGen -> (Int, SMGen)
-      f !acc g
-        | acc >= limit = (limit, g)
-        | otherwise =
-          let (w, g') = nextWord64 g
-           in if w /= 0
-                then (acc + countLeadingZeros w, g')
-                else f (acc + finiteBitSize w) g'
+  drawSignificand _ (x, y) =
+    state (first (+ x) . bitmaskWithRejection32' (y - x))
+  drawExponent _ (x, y) =
+    state (first fromIntegral . drawDownExponent (x, y) nextWord64)
 
 instance MonadIEEE (State SMGen) Double Word16 Word64 where
   drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
-  drawSignificand _ (x, y) = state (first (+ x) . bitmaskWithRejection64 limit)
-    where
-      limit = succ y - x
-  drawExponent _ (x, y) = state (first fromIntegral . f start)
-    where
-      start = fromIntegral x :: Int
-      limit = fromIntegral y :: Int
-      f :: Int -> SMGen -> (Int, SMGen)
-      f !acc g
-        | acc >= limit = (limit, g)
-        | otherwise =
-          let (w, g') = nextWord64 g
-           in if w /= 0
-                then (acc + countLeadingZeros w, g')
-                else f (acc + finiteBitSize w) g'
+  drawSignificand _ (x, y) =
+    state (first (+ x) . bitmaskWithRejection64' (y - x))
+  drawExponent _ (x, y) =
+    state (first fromIntegral . drawDownExponent (x, y) nextWord64)

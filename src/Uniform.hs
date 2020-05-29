@@ -4,11 +4,12 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Main where
+module Uniform where
 
 import Control.Exception (assert)
 import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
+import Debug.Trace (trace)
 import MonadIEEE
   ( MonadIEEE,
     assemble,
@@ -16,6 +17,7 @@ import MonadIEEE
     drawExponent,
     drawSignificand,
     explode,
+    maxSignificand,
     perhapsNegate,
   )
 
@@ -52,18 +54,19 @@ uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
   where
     p = Proxy :: Proxy f
     ey = succ ex
-    sz = max (maxBound - sx) sy
-    draw = (,) <$> drawExponent p (ex, ey) <*> drawSignificand p (0, sz)
-    go (e, s)
-      | assertTrue (e == ex || e == ey) = error "unreachable"
-      | s == 0 = do
-        e' <- bool e (succ e) <$> drawBool p
-        if e' <= ey then return (e', 0) else draw >>= go
-      | e == ex && sx <= s' = return (ex, s')
-      | e == ey && s <= sy = return (ey, s)
-      | otherwise = draw >>= go
-      where
-        s' = maxBound - s
+    dsx = maxSignificand p - sx
+    sz = max dsx sy
+    draw = (,,) <$> drawBool p <*> drawBool p <*> drawSignificand p (0, sz)
+    -- 'go' is a bit awkward, but it allows us to pick exponents and
+    -- significands with exactly the probability required:
+    --
+    -- p = 0.625 for e == ey and s == 0
+    -- p = 0.5   for e == ey and s /= 0
+    -- p = 0.25  for e == ex
+    go (True, True, 0) = drawBool p >>= bool (return (ey, 0)) (draw >>= go)
+    go (True, _, s) | s <= sy = return (ey, s)
+    go (False, True, s) | s <= dsx = return (ex, maxSignificand p - s)
+    go _ = draw >>= go
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
@@ -74,7 +77,7 @@ uniformSignificandsZero ::
 uniformSignificandsZero (ex, ey) = assert (succ ex < ey) $ do
   let p = Proxy :: Proxy f
   e <- drawExponent p (ex, pred ey)
-  s <- drawSignificand p (0, maxBound)
+  s <- drawSignificand p (0, maxSignificand p)
   carry <- ((s == 0) &&) <$> drawBool p
   return $ assemble (if carry then succ e else e, s)
 
@@ -94,6 +97,22 @@ uniformPositive (x, y)
     (ex, sx) = explode x
     (ey, sy) = explode y
 
+uniformSymmetric ::
+  forall m f e s.
+  MonadIEEE m f e s =>
+  f ->
+  m f
+uniformSymmetric x = do
+  f <- uniformPositive (0, x)
+  b <- drawBool (Proxy :: Proxy f)
+  if f == 0 && b
+    then uniformSymmetric x
+    else return $ if b then negate f else f
+
+negateUnlessZero :: (Eq a, Num a) => a -> a
+negateUnlessZero 0 = 0 -- matches -0 :: Float and Double, too!
+negateUnlessZero x = negate x
+
 uniform ::
   forall m f e s.
   MonadIEEE m f e s =>
@@ -106,7 +125,7 @@ uniform (x, y)
   | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite x = return x
   | isInfinite y = return y
-  | y <= 0 = negate <$> uniformRightPositive (abs y, abs x)
+  | y <= 0 = negateUnlessZero <$> uniformRightPositive (abs y, abs x)
   | otherwise = uniformRightPositive (x, y)
 
 uniformRightPositive ::
@@ -116,10 +135,7 @@ uniformRightPositive ::
 uniformRightPositive (x, y)
   | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = error "unreachable"
   | 0 <= x = uniformPositive (x, y)
-  | abs x == y = perhapsNegate <*> uniformPositive (0, y)
+  | abs x == y = uniformSymmetric y
   | otherwise =
-    let sample = perhapsNegate <*> uniformPositive (0, max (abs x) y)
+    let sample = uniformSymmetric (max (abs x) y)
      in iterateUntilM (\u -> x <= u && u <= y) sample
-
-main :: IO ()
-main = putStrLn "Hello, Haskell!"
