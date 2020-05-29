@@ -12,17 +12,20 @@ import Data.Proxy (Proxy (Proxy))
 import Debug.Trace (trace)
 import MonadIEEE
   ( MonadIEEE,
+    abs',
     assemble,
     drawBool,
     drawExponent,
     drawSignificand,
     explode,
+    isInfinite',
+    isPoint,
     maxSignificand,
-    perhapsNegate,
+    isNaN',
+    negate',
+    negateUnlessZero,
+    zero
   )
-
-isPoint :: RealFloat a => a -> Bool
-isPoint f = not (isNaN f) && not (isInfinite f)
 
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
@@ -86,7 +89,7 @@ uniformPositive ::
   (f, f) ->
   m f
 uniformPositive (x, y)
-  | assertTrue (isPoint x && isPoint y && 0 <= x && x < y) = error "unreachable"
+  | assertTrue (isPoint x && isPoint y && z <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual ex (sx, sy)
   | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
   | succ ex == ey = uniformExponentsDifferByOne ex (sx, sy)
@@ -94,6 +97,7 @@ uniformPositive (x, y)
     let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
      in iterateUntilM (\u -> x <= u && u <= y) sample
   where
+    z = zero Proxy
     (ex, sx) = explode x
     (ey, sy) = explode y
 
@@ -103,15 +107,12 @@ uniformSymmetric ::
   f ->
   m f
 uniformSymmetric x = do
-  f <- uniformPositive (0, x)
+  let z = zero Proxy
+  f <- uniformPositive (z, x)
   b <- drawBool (Proxy :: Proxy f)
-  if f == 0 && b
+  if f == z && b
     then uniformSymmetric x
-    else return $ if b then negate f else f
-
-negateUnlessZero :: (Eq a, Num a) => a -> a
-negateUnlessZero 0 = 0 -- matches -0 :: Float and Double, too!
-negateUnlessZero x = negate x
+    else return $ if b then negate' f else f
 
 uniform ::
   forall m f e s.
@@ -119,13 +120,13 @@ uniform ::
   (f, f) ->
   m f
 uniform (x, y)
-  | isNaN x || isNaN y = return x
+  | isNaN' x || isNaN' y = return x
   | x == y = return x
   | x > y = error "uniform"
-  | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
-  | isInfinite x = return x
-  | isInfinite y = return y
-  | y <= 0 = negateUnlessZero <$> uniformRightPositive (abs y, abs x)
+  | isInfinite' x && isInfinite' y = bool x y <$> drawBool (Proxy :: Proxy f)
+  | isInfinite' x = return x
+  | isInfinite' y = return y
+  | y <= zero Proxy = negateUnlessZero <$> uniformRightPositive (abs' y, abs' x)
   | otherwise = uniformRightPositive (x, y)
 
 uniformRightPositive ::
@@ -133,9 +134,11 @@ uniformRightPositive ::
   (f, f) ->
   m f
 uniformRightPositive (x, y)
-  | assertTrue (isPoint x && isPoint y && x < y && 0 < y) = error "unreachable"
-  | 0 <= x = uniformPositive (x, y)
-  | abs x == y = uniformSymmetric y
+  | assertTrue (isPoint x && isPoint y && x < y && z < y) = error "unreachable"
+  | z <= x = uniformPositive (x, y)
+  | abs' x == y = uniformSymmetric y
   | otherwise =
-    let sample = uniformSymmetric (max (abs x) y)
+    let sample = uniformSymmetric (max (abs' x) y)
      in iterateUntilM (\u -> x <= u && u <= y) sample
+  where
+    z = zero Proxy
