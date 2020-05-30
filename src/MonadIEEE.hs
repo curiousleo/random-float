@@ -1,9 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -37,19 +37,31 @@ negateUnlessZero x = if abs' x == zero Proxy then x else negate' x
 -- IEEERepr and MonadIEEE class declarations
 -------------------------------------------------------------------------------
 
+-- | RealFloat is just too big!
+class IEEEFloat a where
+  zero :: Proxy a -> a
+  isNaN' :: a -> Bool
+  isInfinite' :: a -> Bool
+  abs' :: a -> a
+  negate' :: a -> a
+
 -- | Assumption: minBound :: Significand f == 0
 class
-  (Eq f, Ord f, Eq e, Ord e, Enum e, Show e, Eq s, Ord s, Integral s, Show s) =>
+  ( Eq f,
+    Ord f,
+    IEEEFloat f,
+    Eq e,
+    Ord e,
+    Enum e,
+    Show e,
+    Eq s,
+    Ord s,
+    Integral s,
+    Show s
+  ) =>
   IEEERepr f e s
     | f -> e s where
-  isNaN' :: f -> Bool
-  isInfinite' :: f -> Bool
-
-  zero :: Proxy f -> f
   maxSignificand :: Proxy f -> s
-
-  abs' :: f -> f
-  negate' :: f -> f
   explode :: f -> (e, s)
   assemble :: (e, s) -> f
 
@@ -76,13 +88,15 @@ floatSignificandWidth = 23
 floatExponentWidth = 8
 floatExponentBias = 127
 
-instance IEEERepr Float Word8 Word32 where
+instance IEEEFloat Float where
+  zero _ = 0
   isNaN' = isNaN
   isInfinite' = isInfinite
-  zero _ = 0
-  maxSignificand _ = mask floatSignificandWidth
   abs' = abs
   negate' = negate
+
+instance IEEERepr Float Word8 Word32 where
+  maxSignificand _ = mask floatSignificandWidth
   explode f = (fromIntegral e, s)
     where
       w = castFloatToWord32 f
@@ -100,13 +114,15 @@ doubleSignificandWidth = 52
 doubleExponentWidth = 11
 doubleExponentBias = 1023
 
-instance IEEERepr Double Word16 Word64 where
+instance IEEEFloat Double where
+  zero _ = 0
   isNaN' = isNaN
   isInfinite' = isInfinite
-  zero _ = 0
-  maxSignificand _ = mask doubleSignificandWidth
   abs' = abs
   negate' = negate
+
+instance IEEERepr Double Word16 Word64 where
+  maxSignificand _ = mask doubleSignificandWidth
   explode f = (fromIntegral e, s)
     where
       w = castDoubleToWord64 f
@@ -126,14 +142,18 @@ newtype Binary8 = Binary8 {unBinary8 :: Word8}
   deriving newtype (Eq)
 
 instance Show Binary8 where
-  show x@(Binary8 w) = show $ (bool id negate neg) (s' * (2::Float) ^^ e')
-    where
-      m = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
-      neg = 0 /= m .&. w
-      (e, s) = explode x
-      e' = (fromIntegral e :: Int) - binary8ExponentBias
-      maxS = maxSignificand (Proxy :: Proxy Binary8)
-      s' = (fromIntegral (s .|. (1 `shiftL` binary8SignificandWidth)) :: Float) / succ (fromIntegral maxS)
+  show (Binary8 0) = "0"
+  show x = show (toFloat x)
+
+toFloat :: Binary8 -> Float
+toFloat (Binary8 0) = 0
+toFloat x@(Binary8 w) = bool id negate neg (assemble (e', s') :: Float)
+  where
+    m = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
+    neg = 0 /= m .&. w
+    (e, s) = explode x
+    e' = fromIntegral e + fromIntegral (floatExponentBias - binary8ExponentBias)
+    s' = fromIntegral s `shiftL` (floatSignificandWidth - binary8SignificandWidth)
 
 instance Ord Binary8 where
   x@(Binary8 wx) <= y@(Binary8 wy)
@@ -151,16 +171,18 @@ binary8SignificandWidth = 3
 binary8ExponentWidth = 4
 binary8ExponentBias = 7
 
-instance IEEERepr Binary8 Word8 Word8 where
+instance IEEEFloat Binary8 where
+  zero _ = Binary8 0
   isNaN' _ = False -- TODO
   isInfinite' _ = False -- TODO
-  zero _ = Binary8 0
-  maxSignificand _ = mask binary8SignificandWidth
   abs' = assemble . explode
   negate' (Binary8 w) = Binary8 w'
     where
       sign = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
       w' = sign `xor` w
+
+instance IEEERepr Binary8 Word8 Word8 where
+  maxSignificand _ = mask binary8SignificandWidth
   explode (Binary8 w) = (fromIntegral e, s)
     where
       e = (w `unsafeShiftR` binary8SignificandWidth) .&. mask binary8ExponentWidth
@@ -171,6 +193,7 @@ instance IEEERepr Binary8 Word8 Word8 where
     where
       s' = s .&. mask binary8SignificandWidth
       w = (fromIntegral e `unsafeShiftL` binary8SignificandWidth) .|. s'
+
 -------------------------------------------------------------------------------
 -- MonadIEEE instance for SMGen
 -------------------------------------------------------------------------------
@@ -205,7 +228,7 @@ instance MonadIEEE (State SMGen) Binary8 Word8 Word8 where
   drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
   drawSignificand _ (x, y) =
     state (first ((+ x) . fromIntegral) . bitmaskWithRejection32' d)
-      where
-        d = fromIntegral (y - x)
+    where
+      d = fromIntegral (y - x)
   drawExponent _ (x, y) =
     state (first fromIntegral . drawDownExponent (x, y) nextWord64)
