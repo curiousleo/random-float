@@ -199,16 +199,18 @@ instance IEEERepr Binary8 Word8 Word8 where
 -------------------------------------------------------------------------------
 
 drawDownExponent :: Integral a => (a, a) -> (g -> (Word64, g)) -> g -> (Int, g)
-drawDownExponent (limit, start) gen = go (fromIntegral start)
+drawDownExponent (limit, start) gen = go start'
   where
+    start' = fromIntegral start
     limit' = fromIntegral limit
     go !acc g
-      | acc <= limit' = (limit', g)
+      | acc < limit' = go start' g
       | otherwise =
         let (w, g') = gen g
+            acc' = acc - countLeadingZeros w
          in if w /= 0
-              then (max limit' (acc - countLeadingZeros w), g')
-              else go (acc - finiteBitSize w) g
+              then if acc' < limit' then go start' g' else (acc', g')
+              else go acc' g
 
 instance MonadIEEE (State SMGen) Float Word8 Word32 where
   drawBool _ = state (first (\w -> 0 /= 1 .&. w) . nextWord32)
