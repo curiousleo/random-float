@@ -60,13 +60,24 @@ uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
     dsx = maxSignificand p - sx
     sz = max dsx sy
     draw = (,,) <$> drawBool p <*> drawBool p <*> drawSignificand p (0, sz)
-    -- 'go' is a bit awkward, but it allows us to pick exponents and
-    -- significands with exactly the probability required:
+    -- 'go' returns at a ratio 2 : 3 : 4 floats of the form
     --
-    -- p = 0.625 for e == ey and s == 0
-    -- p = 0.5   for e == ey and s /= 0
-    -- p = 0.25  for e == ex
+    --     (ex, s) : (ey, 0) : (ey, s /= 0)
+    --
+    -- Imagine that we start with weight 16 and that each coin "reveal" halves
+    -- the weight.
+    --
+    -- Clause 1 outputs (ey, 0) with weight 2 (three coin observations).
+    -- Clause 2 outputs (ey, 0) with weight 4 (two coin observations).
+    -- Clause 3 outputs (ey, s /= 0) with weight 8 (one coin observation).
+    -- Clause 4 outputs (ex, s) with weight 4 (two coin observations).
+    --
+    -- This gives the desired ratio of 4 : 6 : 8.
+    --
+    -- Note that clause 2 is logically redundant, but it makes the clauses
+    -- orthogonal and thus easier to reason about.
     go (True, True, 0) = drawBool p >>= bool (return (ey, 0)) (draw >>= go)
+    go (True, False, 0) = return (ey, 0)
     go (True, _, s) | s <= sy = return (ey, s)
     go (False, True, s) | s <= dsx = return (ex, maxSignificand p - s)
     go _ = draw >>= go
