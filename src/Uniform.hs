@@ -19,12 +19,12 @@ import MonadIEEE
     drawSignificand,
     explode,
     isInfinite',
+    isNaN',
     isPoint,
     maxSignificand,
-    isNaN',
     negate',
     negateUnlessZero,
-    zero
+    zero,
   )
 
 assertTrue :: Bool -> Bool
