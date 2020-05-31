@@ -30,23 +30,10 @@ import MonadIEEE
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
-iterateUntilM :: Monad m => (a -> m Bool) -> m a -> m a
+iterateUntilM :: Monad m => (a -> Bool) -> m a -> m a
 iterateUntilM p f = f >>= go
   where
-    go !x = p x >>= bool (f >>= go) (return x)
-
-inInterval ::
-  forall m f e s.
-  MonadIEEE m f e s =>
-  (f, f) ->
-  f ->
-  m Bool
-inInterval (x, y) f
-  -- | x <= f && f <= y = return True
-  -- | otherwise = return False
-  | x < f && f < y = return True
-  | x > f || f > y = return False
-  | otherwise = drawBool (Proxy :: Proxy f)
+    go !x = if p x then return x else f >>= go
 
 -- | [2^e + sx, 2^e + sy].
 uniformExponentsEqual ::
@@ -123,7 +110,7 @@ uniformPositive (x, y)
   | succ ex == ey = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
-     in iterateUntilM (inInterval (x, y)) sample
+     in iterateUntilM (\u -> x <= u && u <= y) sample
   where
     z = zero Proxy
     (ex, sx) = explode x
@@ -167,6 +154,6 @@ uniformRightPositive (x, y)
   | abs' x == y = uniformSymmetric y
   | otherwise =
     let sample = uniformSymmetric (max (abs' x) y)
-     in iterateUntilM (inInterval (x, y)) sample
+     in iterateUntilM (\u -> x <= u && u <= y) sample
   where
     z = zero Proxy
