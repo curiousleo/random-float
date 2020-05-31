@@ -13,7 +13,12 @@ import Debug.Trace (trace)
 import MonadIEEE
   ( MonadIEEE,
     abs',
+    Unsigned(..),
+    Signed(..),
     assemble,
+    toPositive,
+    toNegative,
+    toUnsigned,
     drawBool,
     drawExponent,
     drawSignificand,
@@ -35,72 +40,47 @@ iterateUntilM p f = f >>= go
   where
     go !x = if p x then return x else f >>= go
 
--- | [2^e + sx, 2^e + sy].
+-- | [2^e + sx, 2^e + sy).
 uniformExponentsEqual ::
   forall m f e s.
   MonadIEEE m f e s =>
-  e ->
-  (s, s) ->
-  m f
-uniformExponentsEqual e (sx, sy)
-  | assertTrue (sx < sy) = error "unreachable"
-  | sx == pred sy = assemble . (e,) <$> sxOrSy
-  | otherwise = do
-    s <- drawSignificand p (sx, pred sy)
-    assemble . (e,) <$> if s == sx then sxOrSy else return s
-  where
-    p = Proxy :: Proxy f
-    sxOrSy = bool sx sy <$> drawBool p
+  Unsigned f e s ->
+  Unsigned f e s ->
+  m (Unsigned f e s)
+uniformExponentsEqual (U ex sx) (U ey sy) =
+  assert (ex == ey && sx < sy)
+    $ U e <$> drawSignificand Proxy (sx, pred sy)
 
--- | [2^ex + sx, 2^(ex+1) + sy].
+-- | [2^ex + sx, 2^(ex+1) + sy).
 uniformExponentsDifferByOne ::
   forall m f e s.
   MonadIEEE m f e s =>
-  (e, s) ->
-  (e, s) ->
-  m f
-uniformExponentsDifferByOne (ex, 0) (ey, 0) =
-  assert (succ ex == ey) $
-    assemble . (,0) <$> drawExponent (Proxy :: Proxy f) (ex, succ ex)
-uniformExponentsDifferByOne rx@(ex, sx) ry@(ey, sy)
-  | assertTrue (succ ex == ey) = error "unreachable"
-  | dsx <= sy = assemble <$> (draw >>= go rx ry)
-  | otherwise = assemble <$> (draw >>= go ry rx)
+  Unsigned f e s ->
+  Unsigned f e s ->
+  m (Unsigned f e s)
+uniformExponentsDifferByOne rx@(U ex sx) ry@(U ey sy) =
+  assert (succ ex == ey) $ draw >>= go
   where
     p = Proxy :: Proxy f
-    c = (ey, 0)
     dsx = maxSignificand p - sx
-    sz = pred (max dsx sy)
+    sz = max dsx sy
     draw = do
       (e, s) <- (,) <$> drawExponent p (ex, ey) <*> drawSignificand p (0, sz)
-      return (e, if e == ey then s else maxSignificand p - s)
-    go from to u
-      | u == from = bool from c <$> drawBool p
-      | u == c = bool c to <$> drawBool p
-      | rx <= u && u <= ry = return u
-      | otherwise = draw >>= go from to
+      return $ U e (if e == ey then s else maxSignificand p - s)
+    go u
+      | rx <= u && u < ry = return u
+      | otherwise = draw >>= go
 
--- | [2^x, 2^y]
-uniformSignificandsZero ::
-  forall m f e s.
-  MonadIEEE m f e s =>
-  (e, e) ->
-  m f
-uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
-  let p = Proxy :: Proxy f
-  e <- drawExponent p (ex, ey)
-  s <- drawSignificand p (0, maxSignificand p)
-  carry <- ((s == 0) &&) <$> drawBool p
-  return $ assemble (if carry then succ e else e, s)
-
+-- | [2^ex + sx, 2^ey + sy)
 uniformPositiveGeneral ::
   forall m f e s.
   MonadIEEE m f e s =>
+  Proxy f ->
   (e, s) ->
   (e, s) ->
-  m f
-uniformPositiveGeneral rx@(ex, sx) ry@(ey, sy) =
-  assert (rx < ry) $ assemble <$> (draw >>= go)
+  m (e, s)
+uniformPositiveGeneral rx@(ex, _) ry@(ey, _) =
+  assert (rx < ry) $ draw >>= go
   where
     p = Proxy :: Proxy f
     draw =
@@ -108,36 +88,45 @@ uniformPositiveGeneral rx@(ex, sx) ry@(ey, sy) =
         <*> drawSignificand p (0, maxSignificand p)
     go u@(e, s)
       | u < rx || ry <= u = draw >>= go
-      | u == rx || s == 0 = bool u (min ry (succ e, 0)) <$> drawBool p
       | otherwise = return u
 
 uniformPositive ::
   MonadIEEE m f e s =>
-  (f, f) ->
-  m f
-uniformPositive (x, y)
-  | assertTrue (isPoint x && isPoint y && z <= x && x < y) = error "unreachable"
+  Unsigned f e s ->
+  Unsigned f e s ->
+  m (Unsigned f e s)
+uniformPositive rx@(U ex sx) ry@(U ey sy)
   | ex == ey = uniformExponentsEqual ex (sx, sy)
-  | sx == 0 && sy == 0 = uniformSignificandsZero (ex, pred ey)
   | succ ex == ey = uniformExponentsDifferByOne rx ry
   | otherwise = uniformPositiveGeneral rx ry
-  where
-    z = zero Proxy
-    rx@(ex, sx) = explode x
-    ry@(ey, sy) = explode y
 
+-- | [-y, y)
 uniformSymmetric ::
   forall m f e s.
   MonadIEEE m f e s =>
-  f ->
-  m f
-uniformSymmetric x = do
-  let z = zero Proxy
-  f <- uniformPositive (z, x)
-  b <- drawBool (Proxy :: Proxy f)
-  if f == z && b
-    then uniformSymmetric x
-    else return $ if b then negate' f else f
+  Unsigned f e s ->
+  m (Signed f e s)
+uniformSymmetric ry@(U ey sy) = draw >>= go
+  where
+    p = Proxy :: Proxy f
+    rz = toUnsigned . explode (zero p)
+    draw = (,) <$> uniformPositive rz ry <*> drawBool p
+    go (ru@(e, s), b)
+      | b && ru < ry = return . assemble . toPositive ru
+      | not b && ru <= ry = return . assemble . toNegative ru
+      | otherwise = draw >>= go
+
+redistribute ::
+  forall m f e s.
+  MonadIEEE m f e s =>
+  Unsigned f e s ->
+  Unsigned f e s ->
+  Unsigned f e s ->
+  m (Unsigned f e s)
+redistribute p rx ry ru@(eu, su)
+  | assertTrue (rx <= ru && ru < ry) = error "unreachable"
+  | ru == rx || su == 0 = bool ru (min ry (succ eu, 0)) <$> drawBool p
+  | otherwise = return ru
 
 uniform ::
   forall m f e s.
@@ -151,19 +140,16 @@ uniform (x, y)
   | isInfinite' x && isInfinite' y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite' x = return x
   | isInfinite' y = return y
-  | y <= zero Proxy = negateUnlessZero <$> uniformRightPositive (abs' y, abs' x)
-  | otherwise = uniformRightPositive (x, y)
+  | y <= zero Proxy = negateUnlessZero <$> uniformRightExclusive (abs' y, abs' x)
+  | otherwise = uniformRightExclusive (x, y)
 
-uniformRightPositive ::
+uniformRightExclusive ::
   MonadIEEE m f e s =>
-  (f, f) ->
-  m f
-uniformRightPositive (x, y)
-  | assertTrue (isPoint x && isPoint y && x < y && z < y) = error "unreachable"
-  | z <= x = uniformPositive (x, y)
-  | abs' x == y = uniformSymmetric y
-  | otherwise =
-    let sample = uniformSymmetric (max (abs' x) y)
-     in iterateUntilM (\u -> x <= u && u <= y) sample
-  where
-    z = zero Proxy
+  Signed f e s ->
+  Unsigned f e s ->
+  m (Signed f e s)
+uniformRightExclusive (S False ex sx) y =
+  assert ((U ex sx) < y) $ toPositive <$> uniformPositive (U ex sx) y
+uniformRightExclusive x@(S True ex sx) y =
+  let sample = uniformSymmetric (max (U ex sx) y)
+   in iterateUntilM (\u -> x <= u && u < toPositive y) sample
