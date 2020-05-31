@@ -30,10 +30,23 @@ import MonadIEEE
 assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
-iterateUntilM :: Monad m => (a -> Bool) -> m a -> m a
+iterateUntilM :: Monad m => (a -> m Bool) -> m a -> m a
 iterateUntilM p f = f >>= go
   where
-    go !x = if p x then return x else f >>= go
+    go !x = p x >>= bool (f >>= go) (return x)
+
+inInterval ::
+  forall m f e s.
+  MonadIEEE m f e s =>
+  (f, f) ->
+  f ->
+  m Bool
+inInterval (x, y) f
+  -- | x <= f && f <= y = return True
+  -- | otherwise = return False
+  | x < f && f < y = return True
+  | x > f || f > y = return False
+  | otherwise = drawBool (Proxy :: Proxy f)
 
 -- | [2^e + sx, 2^e + sy].
 uniformExponentsEqual ::
@@ -56,30 +69,34 @@ uniformExponentsDifferByOne ::
 uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
   where
     p = Proxy :: Proxy f
+    -- TODO: use Downey trick to increase zero weight from lowest
     ey = succ ex
     dsx = maxSignificand p - sx
     sz = max dsx sy
     draw = (,,) <$> drawBool p <*> drawBool p <*> drawSignificand p (0, sz)
-    -- 'go' returns at a ratio 2 : 3 : 4 floats of the form
+    -- 'go' returns at a ratio 1 : 2 : 3 : 4 : 2 floats of the form
     --
-    --     (ex, s) : (ey, 0) : (ey, s /= 0)
+    --     (ex, sx) : (ex, sx < s) : (ey, 0) : (ey, 0 < s < sy) : (ey, sy)
     --
-    -- Imagine that we start with weight 16 and that each coin "reveal" halves
+    -- Imagine that we start with weight 8 and that each coin "reveal" halves
     -- the weight.
     --
-    -- Clause 1 outputs (ey, 0) with weight 2 (three coin observations).
-    -- Clause 2 outputs (ey, 0) with weight 4 (two coin observations).
-    -- Clause 3 outputs (ey, s /= 0) with weight 8 (one coin observation).
-    -- Clause 4 outputs (ex, s) with weight 4 (two coin observations).
+    -- Clause 1 outputs (ey, 0) with weight 2 (two coin observations).
+    -- Clause 2 outputs (ey, sy) with weight 2 (two coin observations).
+    -- Clause 3 outputs (ey, 0 < s < sy) with weight 4 (one coin observation).
+    -- Clause 4a outputs (ex, sx < s) with weight 2 (two coin observations).
+    -- Clause 4b outputs (ex, sx) with weight 1 (three coin observations).
+    -- Clause 4b outputs (ey, 0) with weight 1 (three coin observations).
     --
-    -- This gives the desired ratio of 4 : 6 : 8.
-    --
-    -- Note that clause 2 is logically redundant, but it makes the clauses
-    -- orthogonal and thus easier to reason about.
-    go (True, True, 0) = drawBool p >>= bool (return (ey, 0)) (draw >>= go)
-    go (True, False, 0) = return (ey, 0)
-    go (True, _, s) | s <= sy = return (ey, s)
-    go (False, True, s) | s <= dsx = return (ex, maxSignificand p - s)
+    -- This gives the desired ratio of 1 : 2 : (2 + 1) : 4 : 2
+    go (True, True, 0) = return (ey, 0)
+    go (True, False, 0) = return (ey, sy)
+    go (True, _, s) | s < sy = return (ey, s)
+    go (False, True, s)
+      | s < dsx = r
+      | s == dsx = drawBool p >>= bool r (return (ey, 0))
+      where
+        r = return (ex, maxSignificand p - s)
     go _ = draw >>= go
 
 -- | [2^x, 2^y]
@@ -88,9 +105,9 @@ uniformSignificandsZero ::
   MonadIEEE m f e s =>
   (e, e) ->
   m f
-uniformSignificandsZero (ex, ey) = assert (succ ex < ey) $ do
+uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
   let p = Proxy :: Proxy f
-  e <- drawExponent p (ex, pred ey)
+  e <- drawExponent p (ex, ey)
   s <- drawSignificand p (0, maxSignificand p)
   carry <- ((s == 0) &&) <$> drawBool p
   return $ assemble (if carry then succ e else e, s)
@@ -102,11 +119,11 @@ uniformPositive ::
 uniformPositive (x, y)
   | assertTrue (isPoint x && isPoint y && z <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual ex (sx, sy)
-  | sx == 0 && sy == 0 = uniformSignificandsZero (ex, ey)
+  | sx == 0 && sy == 0 = uniformSignificandsZero (ex, pred ey)
   | succ ex == ey = uniformExponentsDifferByOne ex (sx, sy)
   | otherwise =
     let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
-     in iterateUntilM (\u -> x <= u && u <= y) sample
+     in iterateUntilM (inInterval (x, y)) sample
   where
     z = zero Proxy
     (ex, sx) = explode x
@@ -150,6 +167,6 @@ uniformRightPositive (x, y)
   | abs' x == y = uniformSymmetric y
   | otherwise =
     let sample = uniformSymmetric (max (abs' x) y)
-     in iterateUntilM (\u -> x <= u && u <= y) sample
+     in iterateUntilM (inInterval (x, y)) sample
   where
     z = zero Proxy
