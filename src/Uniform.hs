@@ -42,49 +42,43 @@ uniformExponentsEqual ::
   e ->
   (s, s) ->
   m f
-uniformExponentsEqual e (sx, sy) =
-  assert (sx < sy) $
-    assemble . (e,) <$> drawSignificand (Proxy :: Proxy f) (sx, sy)
+uniformExponentsEqual e (sx, sy)
+  | assertTrue (sx < sy) = error "unreachable"
+  | sx == pred sy = assemble . (e,) <$> sxOrSy
+  | otherwise = do
+    s <- drawSignificand p (sx, pred sy)
+    assemble . (e,) <$> if s == sx then sxOrSy else return s
+  where
+    p = Proxy :: Proxy f
+    sxOrSy = bool sx sy <$> drawBool p
 
 -- | [2^ex + sx, 2^(ex+1) + sy].
 uniformExponentsDifferByOne ::
   forall m f e s.
   MonadIEEE m f e s =>
-  e ->
-  (s, s) ->
+  (e, s) ->
+  (e, s) ->
   m f
-uniformExponentsDifferByOne ex (sx, sy) = assemble <$> (draw >>= go)
+uniformExponentsDifferByOne (ex, 0) (ey, 0) =
+  assert (succ ex == ey) $
+    assemble . (,0) <$> drawExponent (Proxy :: Proxy f) (ex, succ ex)
+uniformExponentsDifferByOne rx@(ex, sx) ry@(ey, sy)
+  | assertTrue (succ ex == ey) = error "unreachable"
+  | dsx <= sy = assemble <$> (draw >>= go rx ry)
+  | otherwise = assemble <$> (draw >>= go ry rx)
   where
     p = Proxy :: Proxy f
-    -- TODO: use Downey trick to increase zero weight from lowest
-    ey = succ ex
+    c = (ey, 0)
     dsx = maxSignificand p - sx
-    sz = max dsx sy
-    draw = (,,) <$> drawBool p <*> drawBool p <*> drawSignificand p (0, sz)
-    -- 'go' returns at a ratio 1 : 2 : 3 : 4 : 2 floats of the form
-    --
-    --     (ex, sx) : (ex, sx < s) : (ey, 0) : (ey, 0 < s < sy) : (ey, sy)
-    --
-    -- Imagine that we start with weight 8 and that each coin "reveal" halves
-    -- the weight.
-    --
-    -- Clause 1 outputs (ey, 0) with weight 2 (two coin observations).
-    -- Clause 2 outputs (ey, sy) with weight 2 (two coin observations).
-    -- Clause 3 outputs (ey, 0 < s < sy) with weight 4 (one coin observation).
-    -- Clause 4a outputs (ex, sx < s) with weight 2 (two coin observations).
-    -- Clause 4b outputs (ex, sx) with weight 1 (three coin observations).
-    -- Clause 4b outputs (ey, 0) with weight 1 (three coin observations).
-    --
-    -- This gives the desired ratio of 1 : 2 : (2 + 1) : 4 : 2
-    go (True, True, 0) = return (ey, 0)
-    go (True, False, 0) = return (ey, sy)
-    go (True, _, s) | s < sy = return (ey, s)
-    go (False, True, s)
-      | s < dsx = r
-      | s == dsx = drawBool p >>= bool r (return (ey, 0))
-      where
-        r = return (ex, maxSignificand p - s)
-    go _ = draw >>= go
+    sz = pred (max dsx sy)
+    draw = do
+      (e, s) <- (,) <$> drawExponent p (ex, ey) <*> drawSignificand p (0, sz)
+      return (e, if e == ey then s else maxSignificand p - s)
+    go from to u
+      | u == from = bool from c <$> drawBool p
+      | u == c = bool c to <$> drawBool p
+      | rx <= u && u <= ry = return u
+      | otherwise = draw >>= go from to
 
 -- | [2^x, 2^y]
 uniformSignificandsZero ::
@@ -99,6 +93,24 @@ uniformSignificandsZero (ex, ey) = assert (ex < ey) $ do
   carry <- ((s == 0) &&) <$> drawBool p
   return $ assemble (if carry then succ e else e, s)
 
+uniformPositiveGeneral ::
+  forall m f e s.
+  MonadIEEE m f e s =>
+  (e, s) ->
+  (e, s) ->
+  m f
+uniformPositiveGeneral rx@(ex, sx) ry@(ey, sy) =
+  assert (rx < ry) $ assemble <$> (draw >>= go)
+  where
+    p = Proxy :: Proxy f
+    draw =
+      (,) <$> drawExponent p (ex, ey)
+        <*> drawSignificand p (0, maxSignificand p)
+    go u@(e, s)
+      | u < rx || ry <= u = draw >>= go
+      | u == rx || s == 0 = bool u (min ry (succ e, 0)) <$> drawBool p
+      | otherwise = return u
+
 uniformPositive ::
   MonadIEEE m f e s =>
   (f, f) ->
@@ -107,14 +119,12 @@ uniformPositive (x, y)
   | assertTrue (isPoint x && isPoint y && z <= x && x < y) = error "unreachable"
   | ex == ey = uniformExponentsEqual ex (sx, sy)
   | sx == 0 && sy == 0 = uniformSignificandsZero (ex, pred ey)
-  | succ ex == ey = uniformExponentsDifferByOne ex (sx, sy)
-  | otherwise =
-    let sample = uniformSignificandsZero (ex, if sx == 0 then ey else succ ey)
-     in iterateUntilM (\u -> x <= u && u <= y) sample
+  | succ ex == ey = uniformExponentsDifferByOne rx ry
+  | otherwise = uniformPositiveGeneral rx ry
   where
     z = zero Proxy
-    (ex, sx) = explode x
-    (ey, sy) = explode y
+    rx@(ex, sx) = explode x
+    ry@(ey, sy) = explode y
 
 uniformSymmetric ::
   forall m f e s.
