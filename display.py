@@ -28,10 +28,16 @@ if __name__ == "__main__":
     #print(ss)
 
     unique, counts = np.unique(xs, return_counts=True)
-    diff = np.diff(unique)
-    area = (diff[1:] + diff[:-1]) / 2
+    diff = np.ediff1d(unique, to_begin=0, to_end=0) / 2
+    area = (diff[1:] + diff[:-1])
 
+    plt.rcParams.update({'font.size': 22})
     fig, axs = plt.subplots(2, 1, sharex=True)
+
     axs[0].stem(unique, counts, use_line_collection=True)
-    axs[1].stem(unique[1:-1], area, use_line_collection=True)
+    axs[0].set_ylabel("Occurrences")
+
+    axs[1].stem(unique, area, use_line_collection=True)
+    axs[1].set_ylabel("Interval size")
+
     plt.show()
