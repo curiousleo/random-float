@@ -20,7 +20,7 @@ import MonadIEEE
     isInfinite',
     isNaN',
     maxSignificand,
-    negateUnlessZero,
+    negate',
     toNegative,
     toPositive,
     toUnsigned,
@@ -47,118 +47,117 @@ uniform (x, y)
   | isInfinite' x && isInfinite' y = bool x y <$> drawBool (Proxy :: Proxy f)
   | isInfinite' x = return x
   | isInfinite' y = return y
-  | y <= zero Proxy =
-    negateUnlessZero . assemble
-      <$> uniformS (toPositive $ explodeU y) (explodeU x)
-  | otherwise = assemble <$> uniformS (explode x) (explodeU y)
+  | y <= assemble (toPositive zero) =
+    negate' . assemble
+      <$> uniformSigned (toPositive $ explodeUnsigned y) (explodeUnsigned x)
+  | otherwise = assemble <$> uniformSigned (explode x) (explodeUnsigned y)
   where
-    explodeU = toUnsigned . explode
-    uniformS x b = uniformXS x b >>= downeyShiftS x b
+    explodeUnsigned = toUnsigned . explode
+    uniformSigned x b = drawSigned x b >>= downeyShiftSigned x b
 
-uniformXS ::
+drawSigned ::
   MonadIEEE m f e s =>
   Signed f e s ->
   Unsigned f e s ->
   m (Signed f e s)
-uniformXS x b
-  | not (sNegative x) = assert (a < b) $ toPositive <$> uniformXU a b
+drawSigned x b
+  | not (sNegative x) =
+    assert (a < b) $
+      toPositive <$> iterateUntilM (\u -> a <= u && u < b) (proposeUnsigned a b)
   | otherwise =
     assert (x < y) $
-      iterateUntilM (\u -> x <= u && u < y) (drawSymmetric (max a b))
+      iterateUntilM (\u -> x < u && u < y) (proposeSymmetric (max a b))
   where
     a = toUnsigned x
     y = toPositive b
 
--- | [-b, b). Inexact.
-drawSymmetric ::
+-- | [-b, b]
+proposeSymmetric ::
   forall m f e s.
   MonadIEEE m f e s =>
   Unsigned f e s ->
   m (Signed f e s)
-drawSymmetric b = bool toPositive toNegative <$> drawBool p <*> uniformXU z b
+proposeSymmetric b =
+  bool toPositive toNegative <$> drawBool p <*> proposeUnsigned zero b
   where
     p = Proxy :: Proxy f
-    z = toUnsigned $ explode $ zero p
 
 -- | [a, b)
-uniformXU ::
+proposeUnsigned ::
   MonadIEEE m f e s =>
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-uniformXU a@(U ea _) b@(U eb _)
-  | ea == eb = uniformXExponentDiffZero a b
-  | succ ea == eb = iterateUntilM inRange $ drawExponentDiffOne a b
-  | otherwise = iterateUntilM inRange $ drawExponentDiffGreaterOne a b
-  where
-    inRange u = a <= u && u < b
+proposeUnsigned a@(U ea _) b@(U eb _)
+  | ea == eb = drawExponentDiffZero a b
+  | succ ea == eb = proposeExponentDiffOne a b
+  | otherwise = proposeExponentDiffGreaterOne a b
 
 -- | [2^e + sx, 2^e + sy)
-uniformXExponentDiffZero ::
+drawExponentDiffZero ::
   forall m f e s.
   MonadIEEE m f e s =>
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-uniformXExponentDiffZero (U ea sa) (U eb sb) =
+drawExponentDiffZero (U ea sa) (U eb sb) =
   assert (ea == eb && sa < sb) $
-    U ea <$> drawSignificand (Proxy :: Proxy f) (sa, pred sb)
+    U ea <$> ((sa +) <$> drawSignificand (Proxy :: Proxy f) (pred sb - sa))
 
 -- | [2^ex + sx, 2^(ex+1) + sy)
-drawExponentDiffOne ::
+proposeExponentDiffOne ::
   forall m f e s.
   MonadIEEE m f e s =>
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-drawExponentDiffOne (U ea sa) (U eb sb) =
-  assert (succ ea == eb) draw
+proposeExponentDiffOne (U ea sa) (U eb sb) =
+  assert (succ ea == eb) $ do
+    (e, s) <- (,) <$> ((ea +) <$> drawExponent p 1) <*> drawSignificand p sz
+    return $ U e (if e == eb then s else maxSignificand p - s)
   where
     p = Proxy :: Proxy f
-    sz = max (maxSignificand p - sa) sb
-    draw = do
-      (e, s) <- (,) <$> drawExponent p (ea, eb) <*> drawSignificand p (0, sz)
-      return $ U e (if e == eb then s else maxSignificand p - s)
+    sz = max (min sb (pred sb)) (maxSignificand p - sa)
 
 -- | [2^ex + sx, 2^ey + sy)
-drawExponentDiffGreaterOne ::
+proposeExponentDiffGreaterOne ::
   forall m f e s.
   MonadIEEE m f e s =>
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-drawExponentDiffGreaterOne a@(U ea _) b@(U eb _) =
-  assert (a < b) $
-    U <$> drawExponent p (ea, eb)
-      <*> drawSignificand p (0, maxSignificand p)
+proposeExponentDiffGreaterOne a@(U ea _) b@(U eb _) =
+  assert (succ ea < eb) $
+    U <$> ((ea +) <$> drawExponent p (eb - ea))
+      <*> drawSignificand p (maxSignificand p)
   where
     p = Proxy :: Proxy f
 
-downeyShiftS ::
+-- | @[x, b)@ to @[x, b]@
+downeyShiftSigned ::
   forall m f e s.
   MonadIEEE m f e s =>
   Signed f e s ->
   Unsigned f e s ->
   Signed f e s ->
   m (Signed f e s)
-downeyShiftS x b u
-  | assertTrue (x <= u && u < toPositive b) = error "unreachable"
-  | sNegative u = toNegative <$> downeyShiftU z a v
-  | sNegative x = toPositive <$> downeyShiftU z b v
-  | otherwise = toPositive <$> downeyShiftU a b v
+downeyShiftSigned x b u
+  | sNegative u = toNegative <$> downeyShiftUnsigned zero a v
+  | sNegative x = toPositive <$> downeyShiftUnsigned zero b v
+  | otherwise = toPositive <$> downeyShiftUnsigned a b v
   where
     a = toUnsigned x
     v = toUnsigned u
-    z = toUnsigned $ explode $ zero (Proxy :: Proxy f)
 
-downeyShiftU ::
+-- | [a, b) to [a, b]
+downeyShiftUnsigned ::
   forall m f e s.
   MonadIEEE m f e s =>
   Unsigned f e s ->
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-downeyShiftU a b u@(U eu su)
+downeyShiftUnsigned a b u@(U eu su)
   | assertTrue (a <= u && u < b) = error "unreachable"
   | u == a || su == 0 = bool u (min b (U (succ eu) 0)) <$> drawBool p
   | otherwise = return u
