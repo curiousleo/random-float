@@ -42,13 +42,6 @@ import System.Random.SplitMix
 -- IEEERepr and MonadIEEE class declarations
 -------------------------------------------------------------------------------
 
--- | RealFloat is just too big!
-class IEEEFloat a where
-  isNaN' :: a -> Bool
-  isInfinite' :: a -> Bool
-  abs' :: a -> a
-  negate' :: a -> a
-
 data Signed f e s = S {sNegative :: Bool, sExponent :: e, sSignificand :: s}
   deriving stock (Eq, Show, Read)
 
@@ -75,7 +68,6 @@ toNegative U {uExponent, uSignificand} = S True uExponent uSignificand
 class
   ( Eq f,
     Ord f,
-    IEEEFloat f,
     Eq e,
     Ord e,
     Enum e,
@@ -98,9 +90,6 @@ class (Monad m, IEEERepr f e s) => MonadIEEE m f e s where
   drawExponent :: Proxy f -> e -> m e
   drawSignificand :: Proxy f -> s -> m s
 
-isPoint :: IEEERepr f e s => f -> Bool
-isPoint f = not (isNaN' f) && not (isInfinite' f)
-
 -------------------------------------------------------------------------------
 -- IEEERepr instances
 -------------------------------------------------------------------------------
@@ -115,12 +104,6 @@ floatSignificandWidth, floatExponentWidth, floatExponentBias :: Int
 floatSignificandWidth = 23
 floatExponentWidth = 8
 floatExponentBias = 127
-
-instance IEEEFloat Float where
-  isNaN' = isNaN
-  isInfinite' = isInfinite
-  abs' = abs
-  negate' = negate
 
 instance IEEERepr Float Word8 Word32 where
   zero = U 0 0
@@ -146,12 +129,6 @@ doubleSignificandWidth, doubleExponentWidth, doubleExponentBias :: Int
 doubleSignificandWidth = 52
 doubleExponentWidth = 11
 doubleExponentBias = 1023
-
-instance IEEEFloat Double where
-  isNaN' = isNaN
-  isInfinite' = isInfinite
-  abs' = abs
-  negate' = negate
 
 instance IEEERepr Double Word16 Word64 where
   zero = U 0 0
@@ -197,26 +174,18 @@ instance Ord Binary8 where
   x@(Binary8 wx) <= y@(Binary8 wy)
     | xNegative && not yNegative = True
     | not xNegative && not yNegative = wx <= wy
-    | xNegative && yNegative = negate' y <= negate' x
+    | xNegative && yNegative = positive y <= positive x
     | otherwise = False
     where
       m = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
       xNegative = 0 /= m .&. wx
       yNegative = 0 /= m .&. wy
+      positive = assemble . toPositive . toUnsigned . explode
 
 binary8SignificandWidth, binary8ExponentWidth, binary8ExponentBias :: Int
 binary8SignificandWidth = 3
 binary8ExponentWidth = 4
 binary8ExponentBias = 7
-
-instance IEEEFloat Binary8 where
-  isNaN' _ = False -- TODO
-  isInfinite' _ = False -- TODO
-  abs' = assemble . explode
-  negate' (Binary8 w) = Binary8 w'
-    where
-      sign = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
-      w' = sign `xor` w
 
 instance IEEERepr Binary8 Word8 Word8 where
   zero = U 0 0

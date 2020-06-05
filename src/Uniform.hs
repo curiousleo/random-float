@@ -17,10 +17,7 @@ import MonadIEEE
     drawExponent,
     drawSignificand,
     explode,
-    isInfinite',
-    isNaN',
     maxSignificand,
-    negate',
     toNegative,
     toPositive,
     toUnsigned,
@@ -37,18 +34,18 @@ iterateUntilM p f = f >>= go
 
 uniform ::
   forall m f e s.
-  MonadIEEE m f e s =>
+  (RealFloat f, MonadIEEE m f e s) =>
   (f, f) ->
   m f
 uniform (x, y)
-  | isNaN' x || isNaN' y = return x
+  | isNaN x || isNaN y = return x
   | x == y = return x
   | x > y = error "uniform"
-  | isInfinite' x && isInfinite' y = bool x y <$> drawBool (Proxy :: Proxy f)
-  | isInfinite' x = return x
-  | isInfinite' y = return y
+  | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
+  | isInfinite x = return x
+  | isInfinite y = return y
   | y <= assemble (toPositive zero) =
-    negate' . assemble
+    negate . assemble
       <$> uniformSigned (toPositive $ explodeUnsigned y) (explodeUnsigned x)
   | otherwise = assemble <$> uniformSigned (explode x) (explodeUnsigned y)
   where
@@ -126,7 +123,7 @@ proposeExponentDiffGreaterOne ::
   Unsigned f e s ->
   Unsigned f e s ->
   m (Unsigned f e s)
-proposeExponentDiffGreaterOne a@(U ea _) b@(U eb _) =
+proposeExponentDiffGreaterOne (U ea _) (U eb _) =
   assert (succ ea < eb) $
     U <$> ((ea +) <$> drawExponent p (eb - ea))
       <*> drawSignificand p (maxSignificand p)

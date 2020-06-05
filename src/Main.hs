@@ -6,17 +6,15 @@ module Main
 where
 
 import Control.Monad (forever)
-import Control.Monad.State.Strict (State, runState, state)
+import Control.Monad.State.Strict (runState)
 import qualified Data.ByteString.Builder as BS
 import qualified Data.ByteString.Builder.Prim as BS
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.List (group, sort, unfoldr)
-import Data.Proxy (Proxy (Proxy))
-import GHC.Float (float2Double)
+import Data.Word (Word8)
 import MonadIEEE
 import System.Environment (getArgs)
 import qualified System.IO as IO
-import System.Random.SplitMix (SMGen, mkSMGen)
+import System.Random.SplitMix (mkSMGen)
 import Uniform
 
 main :: IO ()
@@ -26,7 +24,7 @@ main = do
   ref <- newIORef (mkSMGen 13371)
   case t of
     "binary8" -> do
-      let u = uniform (assemble (read x) :: Binary8, assemble (read y) :: Binary8)
+      let u = drawSigned (read x :: Signed Binary8 Word8 Word8) (read y :: Unsigned Binary8 Word8 Word8)
       let output = case m of
             "text" -> print
             _ -> error "text only"
