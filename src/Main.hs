@@ -34,7 +34,7 @@ main = do
         output v
         writeIORef ref gen'
     "float" -> do
-      let u = uniform (read x :: Float, read y :: Float)
+      let u = uniform (read x :: Float) (read y :: Float)
       let output = case m of
             "text" -> print
             "binary" -> BS.hPutBuilder stdout . BS.primFixed BS.floatHost
@@ -45,7 +45,7 @@ main = do
         output v
         writeIORef ref gen'
     "double" -> do
-      let u = uniform (read x :: Double, read y :: Double)
+      let u = uniform (read x :: Double) (read y :: Double)
       let output = case m of
             "text" -> print
             "binary" -> BS.hPutBuilder stdout . BS.primFixed BS.doubleHost

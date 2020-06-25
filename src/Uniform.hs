@@ -30,14 +30,17 @@ assertTrue = flip assert False
 iterateUntilM :: Monad m => (a -> Bool) -> m a -> m a
 iterateUntilM p f = f >>= go
   where
-    go !x = if p x then return x else f >>= go
+    go !x
+      | p x = return x
+      | otherwise = f >>= go
 
 uniform ::
   forall m f e s.
   (RealFloat f, MonadIEEE m f e s) =>
-  (f, f) ->
+  f ->
+  f ->
   m f
-uniform (x, y)
+uniform x y
   | isNaN x || isNaN y = return x
   | x == y = return x
   | x > y = error "uniform"
