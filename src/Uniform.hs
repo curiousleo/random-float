@@ -41,7 +41,8 @@ uniform ::
   f ->
   m f
 uniform x y
-  | isNaN x || isNaN y = return x
+  | isNaN x = return x
+  | isNaN y = return y
   | x == y = return x
   | x > y = error "uniform"
   | isInfinite x && isInfinite y = bool x y <$> drawBool (Proxy :: Proxy f)
