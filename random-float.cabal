@@ -23,3 +23,19 @@ executable random-float
         splitmix >=0.0.4,
         bytestring -any,
         mtl -any
+
+test-suite doctest
+    hs-source-dirs:   test
+    default-language: Haskell2010
+
+    if impl(ghc >=8.0.2)
+        type:          exitcode-stdio-1.0
+        main-is:       Doctest.hs
+        build-depends:
+            base >=4.12 && <4.14,
+            doctest >=0.15 && <0.18,
+            random-float -any
+
+    else
+        type:    exitcode-stdio-1.0
+        main-is: NoDoctest.hs
