@@ -32,56 +32,53 @@ import Uniform (uniformSigned)
 
 main :: IO ()
 main =
-  let p = 0.5
-      n = 10
+  let n = 10
    in hspec $ describe "uniform" $ do
         describe "rademacher-fpl tests" $ do
           specify "negative-interval" $ pendingWith "negative"
           specify "symmetric-interval" $ pendingWith "negative"
           describe "same exponent" $ do
-            specify "simple" $ isUniform (U 7 1) (U 7 6) n p
-            specify "nextafter" $ isUniform (U 2 4) (U 3 0) n p
+            specify "simple" $ isUniform (U 7 1) (U 7 6) n
+            specify "nextafter" $ isUniform (U 2 4) (U 3 0) n
           describe "pow2" $ do
-            specify "one-two" $ isUniform (U 7 0) (U 8 0) (5 * n) p
+            specify "one-two" $ isUniform (U 7 0) (U 8 0) (5 * n)
             specify "negative" $ pendingWith "negative"
             describe "non-negative" $ do
               specify "basic" $ pendingWith "infinity"
               specify "vbin-overflow" $ pendingWith "infinity"
           describe "a-pow2" $ do
-            specify "denormal-a" $ isUniform (U 0 0) (U 1 7) n p
+            specify "denormal-a" $ isUniform (U 0 0) (U 1 7) n
             describe "normal-a" $ do
-              specify "basic" $ isUniform (U 1 0) (U 2 7) n p
-              specify "vbin-overflow" $ isUniform (U 1 0) (U 8 7) n 0.2
+              specify "basic" $ isUniform (U 1 0) (U 2 7) n
+              specify "vbin-overflow" $ isUniform (U 1 0) (U 8 7) (200 * n)
           describe "same-sign" $ do
             describe "normal-a" $ do
-              specify "basic" $ isUniform (U 1 3) (U 3 7) (10 * n) p
-              specify "vbin-overflow" $ isUniform (U 1 3) (U 8 7) n p
-            specify "denormal-a" $ isUniform (U 0 3) (U 2 7) (10 * n) p
+              specify "basic" $ isUniform (U 1 3) (U 3 7) (10 * n)
+              specify "vbin-overflow" $ isUniform (U 1 3) (U 8 7) n
+            specify "denormal-a" $ isUniform (U 0 3) (U 2 7) (10 * n)
           describe "mixed-sign" $ do
             specify "basic" $ pendingWith "negative"
             specify "denormals" $ pendingWith "negative"
             describe "vbin-overflow" $ do
               specify "[a,b), abs(a) > abs(b)" $ pendingWith "negative"
               specify "[a,b), abs(a) >> abs(b)" $ pendingWith "negative"
-        describe "own tests" $
-          specify "full range" $
-            isUniform (U 0 0) (U 15 7) 1 p
+        describe "own tests"
+          $ specify "full range"
+          $ isUniform (U 0 0) (U 15 7) 1
 
 isUniform ::
   Unsigned Binary8 Word8 Word8 ->
   Unsigned Binary8 Word8 Word8 ->
   Int ->
-  Double ->
   Expectation
-isUniform x y n pExpected =
-  let ept = V.map (* n) (expected x y) :: V.Vector Int
-      obs = observed (V.sum ept) x y
-      inp = V.zip obs (V.map (fromIntegral :: Int -> Double) ept)
-      acceptNullHypothesis :: V.Vector (Int, Double) -> Bool
-      acceptNullHypothesis i =
-        let test = fromJust (chi2test 1 i)
-         in pValue (testSignificance test) > pExpected
-   in inp `shouldSatisfy` acceptNullHypothesis
+isUniform x y n = V.zip ob ex' `shouldSatisfy` acceptH0
+  where
+    ex = V.map (* n) (expected x y) :: V.Vector Int
+    ex' = V.map (fromIntegral :: Int -> Double) ex
+    ob = observed (V.sum ex) x y
+    acceptH0 :: V.Vector (Int, Double) -> Bool
+    acceptH0 i =
+      pValue (testSignificance (fromJust (chi2test 1 i))) > 0.5
 
 expected ::
   forall f e s.
