@@ -5,13 +5,12 @@ license:            LGPL-3
 build-type:         Simple
 extra-source-files: CHANGELOG.md
 
-executable random-float
-    main-is:          Main.hs
-    hs-source-dirs:   src
-    other-modules:
+library
+    exposed-modules:
         MonadIEEE
         Uniform
 
+    hs-source-dirs:   src
     default-language: Haskell2010
     ghc-options:
         -Weverything -Wno-implicit-prelude -Wno-missing-export-lists
@@ -20,6 +19,44 @@ executable random-float
 
     build-depends:
         base >=4.12 && <4.14,
-        splitmix >=0.0.4,
         bytestring -any,
-        mtl -any
+        mtl -any,
+        splitmix >=0.0.4,
+        statistics -any,
+        vector -any
+
+test-suite doctest
+    hs-source-dirs:   test
+    default-language: Haskell2010
+
+    if impl(ghc >=8.0.2)
+        type:          exitcode-stdio-1.0
+        main-is:       Doctest.hs
+        build-depends:
+            base >=4.12 && <4.14,
+            doctest >=0.15 && <0.18,
+            random-float -any
+
+    else
+        type:    exitcode-stdio-1.0
+        main-is: NoDoctest.hs
+
+test-suite spec
+    type:             exitcode-stdio-1.0
+    main-is:          Spec.hs
+    hs-source-dirs:   test
+    default-language: Haskell2010
+    ghc-options:
+        -Weverything -Wno-implicit-prelude -Wno-missing-export-lists
+        -Wno-missing-local-signatures -Wno-name-shadowing
+        -Wno-monomorphism-restriction -Wno-safe
+
+    build-depends:
+        base >=4.12 && <4.14,
+        hspec -any,
+        hspec-expectations -any,
+        vector -any,
+        statistics -any,
+        splitmix -any,
+        mtl -any,
+        random-float -any
