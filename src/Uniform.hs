@@ -54,7 +54,14 @@ uniform x y
   | otherwise = assemble <$> uniformSigned (explode x) (explodeUnsigned y)
   where
     explodeUnsigned = toUnsigned . explode
-    uniformSigned x b = drawSigned x b >>= downeyShiftSigned x b
+
+uniformSigned ::
+  MonadIEEE m f e s =>
+  Signed f e s ->
+  Unsigned f e s ->
+  m (Signed f e s)
+uniformSigned x b = drawSigned x b >>= downeyShiftSigned x b
+{-# INLINEABLE uniformSigned #-}
 
 drawSigned ::
   MonadIEEE m f e s =>
@@ -71,6 +78,7 @@ drawSigned x b
   where
     a = toUnsigned x
     y = toPositive b
+{-# INLINEABLE drawSigned #-}
 
 -- | [-b, b]
 proposeSymmetric ::
@@ -82,6 +90,7 @@ proposeSymmetric b =
   bool toPositive toNegative <$> drawBool p <*> proposeUnsigned zero b
   where
     p = Proxy :: Proxy f
+{-# INLINEABLE proposeSymmetric #-}
 
 -- | [a, b)
 proposeUnsigned ::
@@ -93,6 +102,7 @@ proposeUnsigned a@(U ea _) b@(U eb _)
   | ea == eb = drawExponentDiffZero a b
   | succ ea == eb = proposeExponentDiffOne a b
   | otherwise = proposeExponentDiffGreaterOne a b
+{-# INLINEABLE proposeUnsigned #-}
 
 -- | [2^e + sx, 2^e + sy)
 drawExponentDiffZero ::
@@ -104,6 +114,7 @@ drawExponentDiffZero ::
 drawExponentDiffZero (U ea sa) (U eb sb) =
   assert (ea == eb && sa < sb) $
     U ea <$> ((sa +) <$> drawSignificand (Proxy :: Proxy f) (pred sb - sa))
+{-# INLINEABLE drawExponentDiffZero #-}
 
 -- | [2^ex + sx, 2^(ex+1) + sy)
 proposeExponentDiffOne ::
@@ -119,6 +130,7 @@ proposeExponentDiffOne (U ea sa) (U eb sb) =
   where
     p = Proxy :: Proxy f
     sz = max (min sb (pred sb)) (maxSignificand p - sa)
+{-# INLINEABLE proposeExponentDiffOne #-}
 
 -- | [2^ex + sx, 2^ey + sy)
 proposeExponentDiffGreaterOne ::
@@ -133,6 +145,7 @@ proposeExponentDiffGreaterOne (U ea _) (U eb _) =
       <*> drawSignificand p (maxSignificand p)
   where
     p = Proxy :: Proxy f
+{-# INLINEABLE proposeExponentDiffGreaterOne #-}
 
 -- | @[x, b)@ to @[x, b]@
 downeyShiftSigned ::
@@ -149,6 +162,7 @@ downeyShiftSigned x b u
   where
     a = toUnsigned x
     v = toUnsigned u
+{-# INLINEABLE downeyShiftSigned #-}
 
 -- | [a, b) to [a, b]
 downeyShiftUnsigned ::
@@ -164,3 +178,4 @@ downeyShiftUnsigned a b u@(U eu su)
   | otherwise = return u
   where
     p = Proxy :: Proxy f
+{-# INLINEABLE downeyShiftUnsigned #-}

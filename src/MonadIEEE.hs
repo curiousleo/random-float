@@ -11,6 +11,7 @@
 module MonadIEEE where
 
 import Control.Arrow (first)
+import Data.List (group, sort)
 import Control.Exception (assert)
 import Control.Monad.State.Strict (State, state)
 import Data.Bits
@@ -22,7 +23,7 @@ import Data.Bits
     unsafeShiftR,
     xor,
   )
-import Data.Proxy (Proxy)
+import Data.Proxy (Proxy(..))
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Float
   ( castDoubleToWord64,
@@ -56,6 +57,7 @@ data Unsigned f e s = U {uExponent :: e, uSignificand :: s}
 
 instance (Ord e, Ord s) => Ord (Unsigned f e s) where
   (U ea sa) <= (U eb sb) = ea < eb || (ea == eb && sa <= sb)
+  {-# INLINE (<=) #-}
 
 toUnsigned :: Signed f e s -> Unsigned f e s
 toUnsigned S {sExponent, sSignificand} = U sExponent sSignificand
@@ -181,6 +183,7 @@ instance Ord Binary8 where
       xNegative = 0 /= m .&. wx
       yNegative = 0 /= m .&. wy
       positive = assemble . toPositive . toUnsigned . explode
+  {-# INLINE (<=) #-}
 
 binary8SignificandWidth, binary8ExponentWidth, binary8ExponentBias :: Int
 binary8SignificandWidth = 3
