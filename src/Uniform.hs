@@ -129,7 +129,7 @@ proposeExponentDiffOne (U ea sa) (U eb sb) =
     return $ U e (if e == eb then s else maxSignificand p - s)
   where
     p = Proxy :: Proxy f
-    sz = max (min sb (pred sb)) (maxSignificand p - sa)
+    sz = max (pred (max 1 sb)) (maxSignificand p - sa)
 {-# INLINEABLE proposeExponentDiffOne #-}
 
 -- | [2^ex + sx, 2^ey + sy)

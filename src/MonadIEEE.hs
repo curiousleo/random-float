@@ -11,7 +11,6 @@
 module MonadIEEE where
 
 import Control.Arrow (first)
-import Data.List (group, sort)
 import Control.Exception (assert)
 import Control.Monad.State.Strict (State, state)
 import Data.Bits
@@ -23,7 +22,8 @@ import Data.Bits
     unsafeShiftR,
     xor,
   )
-import Data.Proxy (Proxy(..))
+import Data.List (group, sort)
+import Data.Proxy (Proxy (..))
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Float
   ( castDoubleToWord64,

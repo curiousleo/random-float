@@ -3,91 +3,109 @@
 
 module Main where
 
-import Control.Monad.ST (runST)
-import Data.Bits (shiftR)
-import Data.Proxy (Proxy (..))
-import Data.Word (Word64)
-import MonadIEEE (MonadIEEE (..), toUnsigned, toPositive, IEEERepr (..), Unsigned (..), Binary8)
-import Control.Monad (replicateM)
-import Statistics.Test.ChiSquared (chi2test)
-import Statistics.Test.Types (Test (..))
-import Statistics.Types (pValue)
-import Test.Hspec
-import Test.Validity (identity)
-import Uniform (uniformSigned)
-import Data.IORef (newIORef, readIORef, writeIORef)
-import Control.Monad.State.Strict (runState, evalState)
-import System.Random.SplitMix (mkSMGen)
+import Control.Monad.State.Strict (runState)
+import Data.Maybe (fromJust)
+import Data.Proxy (Proxy (Proxy))
 import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Unboxed.Mutable as MV
 import Data.Word (Word8)
+import MonadIEEE
+  ( Binary8,
+    IEEERepr (maxSignificand),
+    Unsigned (U),
+    toPositive,
+    toUnsigned,
+  )
+import Statistics.Test.ChiSquared (chi2test)
+import Statistics.Test.Types (Test (testSignificance))
+import Statistics.Types (pValue)
+import System.Random.SplitMix (mkSMGen)
+import Test.Hspec
+  ( Expectation,
+    describe,
+    hspec,
+    pendingWith,
+    shouldSatisfy,
+    specify,
+  )
+import Uniform (uniformSigned)
 
 main :: IO ()
 main =
-  let x = U 0 1 :: Unsigned Binary8 Word8 Word8
-      y = U 3 4 :: Unsigned Binary8 Word8 Word8
-   in do
-     mapM_ (putStrLn . show . pUniform x y) [10,100]
+  let p = 0.5
+      n = 10
+   in hspec $ describe "uniform" $ do
+        describe "rademacher tests" $ do
+          specify "negative-interval" $ pendingWith "negative"
+          specify "symmetric-interval" $ pendingWith "negative"
+          describe "same exponent" $ do
+            specify "simple" $ isUniform (U 7 1) (U 7 6) n p
+            specify "nextafter" $ isUniform (U 2 4) (U 3 0) n p
+          describe "pow2" $ do
+            specify "one-two" $ isUniform (U 7 0) (U 8 0) (5 * n) p
+            specify "negative" $ pendingWith "negative"
+            describe "non-negative" $ do
+              specify "basic" $ pendingWith "infinity"
+              specify "vbin-overflow" $ pendingWith "infinity"
+          describe "a-pow2" $ do
+            specify "denormal-a" $ isUniform (U 0 0) (U 1 7) n p
+            describe "normal-a" $ do
+              specify "basic" $ isUniform (U 1 0) (U 2 7) n p
+              specify "vbin-overflow" $ isUniform (U 1 0) (U 8 7) n 0.2
+          describe "same-sign" $ do
+            describe "normal-a" $ do
+              specify "basic" $ isUniform (U 1 3) (U 3 7) (10 * n) p
+              specify "vbin-overflow" $ isUniform (U 1 3) (U 8 7) n p
+            specify "denormal-a" $ isUniform (U 0 3) (U 2 7) (10 * n) p
+          describe "mixed-sign" $ do
+            specify "basic" $ pendingWith "negative"
+            specify "denormals" $ pendingWith "negative"
+            describe "vbin-overflow" $ do
+              specify "[a,b), abs(a) > abs(b)" $ pendingWith "negative"
+              specify "[a,b), abs(a) >> abs(b)" $ pendingWith "negative"
+        describe "own tests" $ do
+          specify "full range" $
+            isUniform (U 0 0) (U 15 7) 1 p
 
-pUniform ::
+isUniform ::
   Unsigned Binary8 Word8 Word8 ->
   Unsigned Binary8 Word8 Word8 ->
   Int ->
-    Double
-pUniform x y n =
-  let ept = V.map (*n) (expected x y) :: V.Vector Int
-      obs = observed' (V.sum ept) x y
+  Double ->
+  Expectation
+isUniform x y n pExpected =
+  let ept = V.map (* n) (expected x y) :: V.Vector Int
+      obs = observed (V.sum ept) x y
       inp = V.zip obs (V.map (fromIntegral :: Int -> Double) ept)
-      Just test = chi2test 1 inp
-   in pValue (testSignificance test)
+      acceptNullHypothesis :: V.Vector (Int, Double) -> Bool
+      acceptNullHypothesis i =
+        let test = fromJust (chi2test 1 i)
+         in pValue (testSignificance test) > pExpected
+   in inp `shouldSatisfy` acceptNullHypothesis
 
-isUniform::
-  Unsigned Binary8 Word8 Word8 ->
-  Unsigned Binary8 Word8 Word8 ->
-  Int ->
-    Double -> Bool
-isUniform x y n p = pUniform x y n > p
+expected ::
+  forall f e s.
+  (IEEERepr f e s, Integral e) =>
+  Unsigned f e s ->
+  Unsigned f e s ->
+  V.Vector Int
+expected a b = V.fromList (map (fromIntegral . weight a b) (fromTo a b))
 
-observed' ::
+observed ::
   Int ->
   Unsigned Binary8 Word8 Word8 ->
   Unsigned Binary8 Word8 Word8 ->
   V.Vector Int
-observed' n a b = V.create $ do
-      let u = uniformSigned (toPositive a) b
-      v <- MV.new (succ $ distance a b)
-      let loop 0 _ = return ()
-          loop m gen = do
-            let (x, gen') = runState u gen
-            MV.modify v succ (distance a (toUnsigned x))
-            loop (pred m) gen'
-      loop n (mkSMGen 1337)
-      return v
-
--- main = hspec $ do
---   describe "uniform" $ do
---     it "has identity NaN" $ do
---       identity uniform (read "NaN" :: Float)
-
-samples ::
-  forall f e s.
-  IEEERepr f e s =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  s ->
-  s
-samples a@(U ea sa) b@(U eb sb) width
-  | a >= b = error "a >= b"
-  | ea == eb =
-    let s = succ (sb - sa)
-     in width * s
-  | otherwise =
-    let s = succ (maxSignificand p - sa)
-        a' = U (succ ea) 0
-        width' = 2 * width
-     in width * s + samples a' b width'
-  where
-    p = Proxy :: Proxy f
+observed n a b = V.create $ do
+  let u = uniformSigned (toPositive a) b
+  v <- MV.new (succ $ distance a b)
+  let loop 0 _ = return ()
+      loop m gen = do
+        let (x, gen') = runState u gen
+        MV.modify v succ (distance a (toUnsigned x))
+        loop (pred m) gen'
+  loop n (mkSMGen 1337)
+  return v
 
 distance ::
   forall f e s.
@@ -96,32 +114,19 @@ distance ::
   Unsigned f e s ->
   Int
 distance a@(U ea sa) b@(U eb sb)
-  -- | a > b = error "a > b"
+  | a > b = error "a > b"
   | ea == eb = fromIntegral $ sb - sa
   | otherwise = succ (fromIntegral (m - sa)) + distance (U (succ ea) 0) b
   where
     p = Proxy :: Proxy f
     m = maxSignificand p
-{-# INLINE distance #-}
-
-observed ::
-  forall f e s.
-  IEEERepr f e s =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  [Unsigned f e s] ->
-  V.Vector Int
-observed a b xs = V.create $ do
-  v <- MV.new (succ $ distance a b)
-  mapM_ (\x -> MV.modify v succ (distance a x)) xs
-  return v
 
 next ::
   forall f e s.
   IEEERepr f e s =>
   Unsigned f e s ->
   Unsigned f e s
-next a@(U ea sa)
+next (U ea sa)
   | sa == maxSignificand (Proxy :: Proxy f) = U (succ ea) 0
   | otherwise = U ea (succ sa)
 
@@ -146,33 +151,9 @@ weight ::
 weight a@(U ea _) b u@(U eu su)
   | a > u || u > b = error "a > u or u > b"
   | a == u = 1
+  | b == u && su == 0 = w `div` 4
   | b == u = w `div` 2
   | su == 0 = 3 * (w `div` 4)
   | otherwise = w
   where
     w = (2 :: Word) ^ (succ eu - ea)
-
-expected ::
-  forall f e s.
-    (IEEERepr f e s, Integral e) =>
-      Unsigned f e s ->
-        Unsigned f e s ->
-          V.Vector Int
-expected a b = V.fromList (map (fromIntegral . weight a b) (fromTo a b))
-
-  {-
-p ::
-  forall f e s.
-  (IEEERepr f e s, Integral e) =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  [Unsigned f e s] ->
-  Double
-p a b xs
-  | fromIntegral (V.sum obs) /= V.sum ept = error $ "sum(obs) = " ++ show (V.sum obs) ++ " sum(ept) = " ++ show (V.sum ept)
-  | otherwise = pValue (testSignificance test)
-  where
-    obs = observed a b xs
-    ept = V.map (*1000) $ expected a b
-    Just test = chi2test 0 (V.zip obs ept)
-    -}

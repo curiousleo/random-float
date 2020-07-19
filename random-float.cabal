@@ -49,12 +49,12 @@ test-suite spec
     ghc-options:
         -Weverything -Wno-implicit-prelude -Wno-missing-export-lists
         -Wno-missing-local-signatures -Wno-name-shadowing
-        -Wno-monomorphism-restriction -Wno-safe -O2
+        -Wno-monomorphism-restriction -Wno-safe
 
     build-depends:
         base >=4.12 && <4.14,
         hspec -any,
-        genvalidity-hspec -any,
+        hspec-expectations -any,
         vector -any,
         statistics -any,
         splitmix -any,
