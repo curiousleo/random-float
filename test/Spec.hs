@@ -35,7 +35,7 @@ main =
   let p = 0.5
       n = 10
    in hspec $ describe "uniform" $ do
-        describe "rademacher tests" $ do
+        describe "rademacher-fpl tests" $ do
           specify "negative-interval" $ pendingWith "negative"
           specify "symmetric-interval" $ pendingWith "negative"
           describe "same exponent" $ do
@@ -63,7 +63,7 @@ main =
             describe "vbin-overflow" $ do
               specify "[a,b), abs(a) > abs(b)" $ pendingWith "negative"
               specify "[a,b), abs(a) >> abs(b)" $ pendingWith "negative"
-        describe "own tests" $ do
+        describe "own tests" $
           specify "full range" $
             isUniform (U 0 0) (U 15 7) 1 p
 

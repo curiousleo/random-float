@@ -10,8 +10,8 @@ import Data.Bool (bool)
 import Data.Proxy (Proxy (Proxy))
 import MonadIEEE
   ( MonadIEEE,
-    Signed (..),
-    Unsigned (..),
+    Signed (sNegative),
+    Unsigned (U),
     assemble,
     drawBool,
     drawExponent,

@@ -20,10 +20,8 @@ import Data.Bits
     countLeadingZeros,
     unsafeShiftL,
     unsafeShiftR,
-    xor,
   )
-import Data.List (group, sort)
-import Data.Proxy (Proxy (..))
+import Data.Proxy (Proxy)
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Float
   ( castDoubleToWord64,
