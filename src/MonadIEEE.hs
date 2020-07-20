@@ -18,8 +18,8 @@ import Data.Bits
     (.|.),
     Bits,
     countLeadingZeros,
-    unsafeShiftL,
-    unsafeShiftR,
+    shiftL,
+    shiftR,
   )
 import Data.Proxy (Proxy)
 import Data.Word (Word16, Word32, Word64, Word8)
@@ -42,9 +42,13 @@ import System.Random.SplitMix
 -------------------------------------------------------------------------------
 
 data Signed f e s = S {sNegative :: Bool, sExponent :: e, sSignificand :: s}
-  deriving stock (Eq, Show, Read)
+  deriving stock (Show, Read)
 
-instance (Ord e, Ord s) => Ord (Signed f e s) where
+instance (Eq e, Num e, Eq s, Num s) => Eq (Signed f e s) where
+  (S _ 0 0) == (S _ 0 0) = True
+  (S nx ex sx) == (S ny ey sy) = nx == ny && ex == ey && sx == sy
+
+instance (Ord e, Num e, Ord s, Num s) => Ord (Signed f e s) where
   (S True _ _) <= (S False _ _) = True
   (S False _ea _sa) <= (S True _eb _sb) = False
   (S True ea sa) <= (S True eb sb) = ea > eb || (ea == eb && sa >= sb)
@@ -98,7 +102,7 @@ assertTrue :: Bool -> Bool
 assertTrue = flip assert False
 
 mask :: (Bits a, Num a) => Int -> a
-mask width = (1 `unsafeShiftL` width) - 1
+mask width = (1 `shiftL` width) - 1
 
 floatSignificandWidth, floatExponentWidth, floatExponentBias :: Int
 floatSignificandWidth = 23
@@ -111,8 +115,8 @@ instance IEEERepr Float Word8 Word32 where
   explode f = S sNegative (fromIntegral sExponent) sSignificand
     where
       w = castFloatToWord32 f
-      sNegative = 0 /= w `unsafeShiftR` (floatSignificandWidth + floatExponentWidth)
-      sExponent = (w `unsafeShiftR` floatSignificandWidth) .&. mask floatExponentWidth
+      sNegative = 0 /= w `shiftR` (floatSignificandWidth + floatExponentWidth)
+      sExponent = (w `shiftR` floatSignificandWidth) .&. mask floatExponentWidth
       sSignificand = w .&. mask floatSignificandWidth
   assemble S {sNegative, sExponent, sSignificand}
     | assertTrue (sSignificand' == sSignificand) = error "unreachable"
@@ -120,9 +124,9 @@ instance IEEERepr Float Word8 Word32 where
     where
       sNegative' =
         if sNegative
-          then 1 `unsafeShiftL` (floatSignificandWidth + floatExponentWidth)
+          then 1 `shiftL` (floatSignificandWidth + floatExponentWidth)
           else 0
-      sExponent' = fromIntegral sExponent `unsafeShiftL` floatSignificandWidth
+      sExponent' = fromIntegral sExponent `shiftL` floatSignificandWidth
       sSignificand' = sSignificand .&. mask floatSignificandWidth
 
 doubleSignificandWidth, doubleExponentWidth, doubleExponentBias :: Int
@@ -136,8 +140,8 @@ instance IEEERepr Double Word16 Word64 where
   explode f = S sNegative (fromIntegral sExponent) sSignificand
     where
       w = castDoubleToWord64 f
-      sNegative = 0 /= w `unsafeShiftR` (doubleSignificandWidth + doubleExponentWidth)
-      sExponent = (w `unsafeShiftR` doubleSignificandWidth) .&. mask doubleExponentWidth
+      sNegative = 0 /= w `shiftR` (doubleSignificandWidth + doubleExponentWidth)
+      sExponent = (w `shiftR` doubleSignificandWidth) .&. mask doubleExponentWidth
       sSignificand = w .&. mask doubleSignificandWidth
   assemble S {sNegative, sExponent, sSignificand}
     | assertTrue (sSignificand' == sSignificand) = error "unreachable"
@@ -145,9 +149,9 @@ instance IEEERepr Double Word16 Word64 where
     where
       sNegative' =
         if sNegative
-          then 1 `unsafeShiftL` (doubleSignificandWidth + doubleExponentWidth)
+          then 1 `shiftL` (doubleSignificandWidth + doubleExponentWidth)
           else 0
-      sExponent' = fromIntegral sExponent `unsafeShiftL` doubleSignificandWidth
+      sExponent' = fromIntegral sExponent `shiftL` doubleSignificandWidth
       sSignificand' = sSignificand .&. mask doubleSignificandWidth
 
 ------------------ Testing ----------------------------
@@ -168,7 +172,7 @@ toFloat x = assemble (S sNegative sExponent' sSignificand')
       if sExponent == 0
         then 0
         else sExponent + fromIntegral (floatExponentBias - binary8ExponentBias)
-    sSignificand' = fromIntegral sSignificand `unsafeShiftL` (floatSignificandWidth - binary8SignificandWidth)
+    sSignificand' = fromIntegral sSignificand `shiftL` (floatSignificandWidth - binary8SignificandWidth)
 
 instance Ord Binary8 where
   x@(Binary8 wx) <= y@(Binary8 wy)
@@ -177,7 +181,7 @@ instance Ord Binary8 where
     | xNegative && yNegative = positive y <= positive x
     | otherwise = False
     where
-      m = 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
+      m = 1 `shiftL` (binary8SignificandWidth + binary8ExponentWidth)
       xNegative = 0 /= m .&. wx
       yNegative = 0 /= m .&. wy
       positive = assemble . toPositive . toUnsigned . explode
@@ -193,8 +197,8 @@ instance IEEERepr Binary8 Word8 Word8 where
   maxSignificand _ = mask binary8SignificandWidth
   explode (Binary8 w) = S {sNegative, sExponent, sSignificand}
     where
-      sNegative = 0 /= w `unsafeShiftR` (binary8SignificandWidth + binary8ExponentWidth)
-      sExponent = (w `unsafeShiftR` binary8SignificandWidth) .&. mask binary8ExponentWidth
+      sNegative = 0 /= w `shiftR` (binary8SignificandWidth + binary8ExponentWidth)
+      sExponent = (w `shiftR` binary8SignificandWidth) .&. mask binary8ExponentWidth
       sSignificand = w .&. mask binary8SignificandWidth
   assemble S {sNegative, sExponent, sSignificand}
     | assertTrue (sSignificand' == sSignificand) = error "unreachable"
@@ -202,9 +206,9 @@ instance IEEERepr Binary8 Word8 Word8 where
     where
       sNegative' =
         if sNegative
-          then 1 `unsafeShiftL` (binary8SignificandWidth + binary8ExponentWidth)
+          then 1 `shiftL` (binary8SignificandWidth + binary8ExponentWidth)
           else 0
-      sExponent' = sExponent `unsafeShiftL` binary8SignificandWidth
+      sExponent' = sExponent `shiftL` binary8SignificandWidth
       sSignificand' = sSignificand .&. mask binary8SignificandWidth
 
 -------------------------------------------------------------------------------
