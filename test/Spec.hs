@@ -144,11 +144,11 @@ chiSquaredP ::
 chiSquaredP v = 1 - cdf (sumVector kbn (V.map f v))
   where
     f :: (Int, Double) -> Double
-    f (o, e) = square (fromIntegral o - e) / e
-    square :: Double -> Double
-    square x = x * x
+    f (o, e) = sq (fromIntegral o - e) / e where sq x = x * x
+    ---
     dof2 :: Double
     dof2 = fromIntegral (V.length v - 1) / 2
+    ---
     cdf :: Double -> Double
     cdf x
       | x <= 0 = 0
