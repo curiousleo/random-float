@@ -5,16 +5,18 @@ module Main where
 
 import Control.Monad.State.Strict (runState)
 import Data.Maybe (fromJust)
-import Data.Proxy (Proxy (Proxy))
 import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Unboxed.Mutable as MV
 import Data.Word (Word8)
 import MonadIEEE
-  ( Binary8,
-    IEEERepr (maxSignificand),
+  ( Binary8 (Binary8, unBinary8),
+  toFloat,
+    IEEERepr (),
+    Signed (S),
     Unsigned (U),
+    assemble,
+    explode,
     toPositive,
-    toUnsigned,
   )
 import Statistics.Test.ChiSquared (chi2test)
 import Statistics.Test.Types (Test (testSignificance))
@@ -29,128 +31,128 @@ import Test.Hspec
     specify,
   )
 import Uniform (uniformSigned)
+import Numeric.SpecFunctions (incompleteGamma)
+import Numeric.Sum (sumVector, kbn)
 
 main :: IO ()
 main =
   let n = 10
    in hspec $ describe "uniform" $ do
+        -- https://gitlab.com/christoph-conrads/rademacher-fpl/-/blob/bd1c5f0a778aef580cdb597506485ee622fcd0b5/test/uniform-real-distribution.cpp
         describe "rademacher-fpl tests" $ do
-          specify "negative-interval" $ pendingWith "negative"
-          specify "symmetric-interval" $ pendingWith "negative"
+          -- specify "negative-interval" $ isUniform (S True 2 7) (U 0 1) n
+          specify "negative-interval" $ isUniform (S True 0 1) (U 0 1) 1000
+          specify "symmetric-interval" $ isUniform (S True 2 7) (U 3 0) n
           describe "same exponent" $ do
-            specify "simple" $ isUniform (U 7 1) (U 7 6) n
-            specify "nextafter" $ isUniform (U 2 4) (U 3 0) n
+            specify "simple" $ isUniform (S False 7 1) (U 7 6) n
+            specify "nextafter" $ isUniform (S False 2 4) (U 3 0) n
           describe "pow2" $ do
-            specify "one-two" $ isUniform (U 7 0) (U 8 0) (5 * n)
-            specify "negative" $ pendingWith "negative"
+            specify "one-two" $ isUniform (S False 7 0) (U 8 0) (5 * n)
+            specify "negative" $ pendingWith "both negative"
             describe "non-negative" $ do
               specify "basic" $ pendingWith "infinity"
               specify "vbin-overflow" $ pendingWith "infinity"
           describe "a-pow2" $ do
-            specify "denormal-a" $ isUniform (U 0 0) (U 1 7) n
+            specify "denormal-a" $ isUniform (S False 0 0) (U 1 7) n
             describe "normal-a" $ do
-              specify "basic" $ isUniform (U 1 0) (U 2 7) n
-              specify "vbin-overflow" $ isUniform (U 1 0) (U 8 7) (200 * n)
+              specify "basic" $ isUniform (S False 1 0) (U 2 7) n
+              specify "vbin-overflow" $ isUniform (S False 1 0) (U 8 7) (200 * n)
           describe "same-sign" $ do
             describe "normal-a" $ do
-              specify "basic" $ isUniform (U 1 3) (U 3 7) (10 * n)
-              specify "vbin-overflow" $ isUniform (U 1 3) (U 8 7) n
-            specify "denormal-a" $ isUniform (U 0 3) (U 2 7) (10 * n)
+              specify "basic" $ isUniform (S False 1 3) (U 3 7) (10 * n)
+              specify "vbin-overflow" $ isUniform (S False 1 3) (U 8 7) n
+            specify "denormal-a" $ isUniform (S False 0 3) (U 2 7) (10 * n)
           describe "mixed-sign" $ do
-            specify "basic" $ pendingWith "negative"
-            specify "denormals" $ pendingWith "negative"
+            specify "basic" $ isUniform (S True 1 3) (U 2 1) n
+            specify "denormals" $ isUniform (S True 0 7) (U 0 7) n
             describe "vbin-overflow" $ do
-              specify "[a,b), abs(a) > abs(b)" $ pendingWith "negative"
-              specify "[a,b), abs(a) >> abs(b)" $ pendingWith "negative"
+              specify "[a,b), abs(a) > abs(b)" $ isUniform (S True 4 5) (U 2 3) n
+              specify "[a,b), abs(a) >> abs(b)" $ isUniform (S True 10 5) (U 2 3) n
         describe "own tests"
           $ specify "full range"
-          $ isUniform (U 0 0) (U 15 7) 1
+          $ isUniform (S False 0 0) (U 15 7) 1
+
+-- newtype Result = { unResult :: V.Vector (Int, Double) }
+
+-- instance Show Result where
+--   show (Result v) = ...
 
 isUniform ::
-  Unsigned Binary8 Word8 Word8 ->
+  Signed Binary8 Word8 Word8 ->
   Unsigned Binary8 Word8 Word8 ->
   Int ->
   Expectation
-isUniform x y n = V.zip ob ex' `shouldSatisfy` acceptH0
+isUniform x b n = r' `shouldSatisfy` acceptH0
   where
-    ex = V.map (* n) (expected x y) :: V.Vector Int
+    ex = V.map (* n) (expected x b) :: V.Vector Int
     ex' = V.map (fromIntegral :: Int -> Double) ex
-    ob = observed (V.sum ex) x y
-    acceptH0 :: V.Vector (Int, Double) -> Bool
+    ob = observe (V.sum ex) x b
+    r = V.izipWith (\i o e -> (toFloat (Binary8 (fromIntegral i)), o, e)) ob ex'
+    r' = V.filter (\(_, o, e) -> o /= 0 || e /= 0) r
+    acceptH0 :: V.Vector (Float, Int, Double) -> Bool
     acceptH0 i =
-      pValue (testSignificance (fromJust (chi2test 1 i))) > 0.5
+      -- pValue (testSignificance (fromJust (chi2test 0 i))) > 0.5
+      chiSquaredP (V.map (\(_, o, e) -> (o, e)) i) > 0.5
 
 expected ::
-  forall f e s.
-  (IEEERepr f e s, Integral e) =>
-  Unsigned f e s ->
-  Unsigned f e s ->
+  Signed Binary8 Word8 Word8 ->
+  Unsigned Binary8 Word8 Word8 ->
   V.Vector Int
-expected a b = V.fromList (map (fromIntegral . weight a b) (fromTo a b))
+expected x b = V.generate m (fromIntegral . weight x y . repr)
+  where
+    m = fromIntegral (maxBound :: Word8)
+    repr = explode . Binary8 . fromIntegral
+    y = toPositive b
 
-observed ::
+observe ::
   Int ->
-  Unsigned Binary8 Word8 Word8 ->
+  Signed Binary8 Word8 Word8 ->
   Unsigned Binary8 Word8 Word8 ->
   V.Vector Int
-observed n a b = V.create $ do
-  let u = uniformSigned (toPositive a) b
-  v <- MV.new (succ $ distance a b)
+observe n x b = V.create $ do
+  let f = uniformSigned x b
+      m = fromIntegral (maxBound :: Word8)
+  v <- MV.new m
   let loop 0 _ = return ()
       loop m gen = do
-        let (x, gen') = runState u gen
-        MV.modify v succ (distance a (toUnsigned x))
+        let (u, gen') = runState f gen
+        MV.modify v succ (fromIntegral $ unBinary8 $ assemble u)
         loop (pred m) gen'
   loop n (mkSMGen 1337)
   return v
 
-distance ::
-  forall f e s.
-  IEEERepr f e s =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  Int
-distance a@(U ea sa) b@(U eb sb)
-  | a > b = error "a > b"
-  | ea == eb = fromIntegral $ sb - sa
-  | otherwise = succ (fromIntegral (m - sa)) + distance (U (succ ea) 0) b
-  where
-    p = Proxy :: Proxy f
-    m = maxSignificand p
-
-next ::
-  forall f e s.
-  IEEERepr f e s =>
-  Unsigned f e s ->
-  Unsigned f e s
-next (U ea sa)
-  | sa == maxSignificand (Proxy :: Proxy f) = U (succ ea) 0
-  | otherwise = U ea (succ sa)
-
-fromTo ::
-  forall f e s.
-  IEEERepr f e s =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  [Unsigned f e s]
-fromTo a b
-  | a > b = error "a > b"
-  | a == b = [a]
-  | otherwise = a : fromTo (next a) b
-
 weight ::
   forall f e s.
   (IEEERepr f e s, Integral e) =>
-  Unsigned f e s ->
-  Unsigned f e s ->
-  Unsigned f e s ->
+  Signed f e s ->
+  Signed f e s ->
+  Signed f e s ->
   Word
-weight a@(U ea _) b u@(U eu su)
-  | a > u || u > b = error "a > u or u > b"
-  | a == u = 1
-  | b == u && su == 0 = w `div` 4
-  | b == u = w `div` 2
+weight x@(S _ ex _) y u@(S _ eu su)
+  | x > u || u > y = 0
+  | x == u = 1
+  | y == u && su == 0 = w `div` 4
+  | y == u = w `div` 2
   | su == 0 = 3 * (w `div` 4)
   | otherwise = w
   where
-    w = (2 :: Word) ^ (succ eu - ea)
+    w = (2 :: Word) ^ (succ eu - ex)
+
+chiSquaredP ::
+  V.Vector (Int, Double) ->
+  Double
+chiSquaredP v = 1 - cdf (sumVector kbn (V.map f v))
+  where
+    f :: (Int, Double) -> Double
+    f (o, e) = square (fromIntegral o - e) / e
+
+    square :: Double -> Double
+    square x = x * x
+
+    dof2 :: Double
+    dof2 = fromIntegral (V.length v - 1) / 2
+
+    cdf :: Double -> Double
+    cdf x
+      | x <= 0 = 0
+      | otherwise = incompleteGamma dof2 (x / 2)
