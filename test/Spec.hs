@@ -10,14 +10,16 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 import Data.Word (Word8)
 import MonadIEEE
   ( Binary8 (Binary8, unBinary8),
-  toFloat,
     IEEERepr (),
     Signed (S),
     Unsigned (U),
     assemble,
     explode,
+    toFloat,
     toPositive,
   )
+import Numeric.SpecFunctions (incompleteGamma)
+import Numeric.Sum (kbn, sumVector)
 import Statistics.Test.ChiSquared (chi2test)
 import Statistics.Test.Types (Test (testSignificance))
 import Statistics.Types (pValue)
@@ -31,8 +33,6 @@ import Test.Hspec
     specify,
   )
 import Uniform (uniformSigned)
-import Numeric.SpecFunctions (incompleteGamma)
-import Numeric.Sum (sumVector, kbn)
 
 main :: IO ()
 main =
@@ -145,13 +145,10 @@ chiSquaredP v = 1 - cdf (sumVector kbn (V.map f v))
   where
     f :: (Int, Double) -> Double
     f (o, e) = square (fromIntegral o - e) / e
-
     square :: Double -> Double
     square x = x * x
-
     dof2 :: Double
     dof2 = fromIntegral (V.length v - 1) / 2
-
     cdf :: Double -> Double
     cdf x
       | x <= 0 = 0
